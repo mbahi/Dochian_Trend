@@ -1,0 +1,1978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Structure Ledger — SMC/AMD Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0b1220; --ledger:#131f33; --ledger2:#0e1826; --line:#24344a;
+    --paper:#eaf1fb; --brass:#c7e2f7; --steel:#5a6472;
+    --grey-acc:#5a6472; --red-acc:#b5484d; --green-acc:#3f8f6f;
+    --text:#e8eef7; --dim:#93a4bd; --faint:#5a6472;
+    --serif:'Fraunces', serif; --sans:'Inter', -apple-system, sans-serif;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);min-height:100vh;padding:14px;
+    background-image:radial-gradient(circle at 20% -10%, rgba(199,226,247,0.07), transparent 45%);}
+  .wrap{max-width:1100px;margin:0 auto}
+
+  header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;
+    padding-bottom:14px;border-bottom:1px solid var(--line)}
+  .brand{font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:0.01em}
+  .brand span{color:var(--brass)}
+  .sub{font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase;margin-top:2px}
+
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  select{background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:7px;
+    padding:8px 10px;font-family:var(--mono);font-size:12.5px;outline:none;cursor:pointer;max-width:175px}
+  select:focus-visible{border-color:var(--brass)}
+
+  .session{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--dim);
+    background:var(--ledger);border:1px solid var(--line);border-radius:7px;padding:8px 12px}
+  .session .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .session .dot.live{background:var(--green-acc);box-shadow:0 0 6px var(--green-acc)}
+  .session .dot.warn{background:var(--red-acc);box-shadow:0 0 6px var(--red-acc)}
+
+  .status{font-family:var(--mono);font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px}
+  .status .pulse{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .status .pulse.on{background:var(--brass);box-shadow:0 0 6px var(--brass)}
+
+  .rule11banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:linear-gradient(90deg, rgba(199,226,247,0.1), rgba(199,226,247,0.02));
+    border:1px solid rgba(199,226,247,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px;
+    font-family:var(--mono);font-size:11px;color:var(--brass);letter-spacing:0.02em}
+  .rule11banner b{color:var(--text)}
+
+  .readfirst{background:var(--ledger);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;padding:2px 14px}
+  .readfirst summary{cursor:pointer;padding:10px 0;font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--dim)}
+  .readfirst-body{padding:2px 0 14px;font-family:var(--sans);font-size:12px;color:var(--dim);line-height:1.6}
+  .readfirst-body p{margin-bottom:8px}
+  .readfirst-body ul{margin:0 0 8px 18px}
+  .readfirst-body li{margin-bottom:6px}
+  .readfirst-body b{color:var(--text)}
+
+  /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once */
+  .mtf{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .mtf-cell{flex:1;min-width:110px;background:var(--ledger);border:1px solid var(--line);border-radius:9px;
+    padding:9px 12px;font-family:var(--mono);cursor:pointer;transition:border-color .15s}
+  .mtf-cell.active{border-color:var(--brass)}
+  .mtf-cell .tf{font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint)}
+  .mtf-cell .bias{font-size:13px;font-weight:600;margin-top:2px}
+  .mtf-cell .bias.bull{color:var(--brass)} .mtf-cell .bias.bear{color:var(--steel)} .mtf-cell .bias.neutral{color:var(--faint)}
+  .val-badge{font-family:var(--mono);font-size:8.5px;letter-spacing:0.05em;text-transform:uppercase;margin-top:4px;padding:1px 0}
+  .val-badge.val-good{color:var(--green-acc)}
+  .val-badge.val-thin{color:var(--red-acc)}
+
+  .quote-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px}
+  .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+  .quote.up{color:var(--brass)} .quote.down{color:var(--steel)}
+  .symname{font-family:var(--serif);font-size:15px;color:var(--dim)}
+  .strategy-toggle{display:flex;gap:6px;background:var(--ledger);border:1px solid var(--line);border-radius:8px;padding:3px}
+  .strategy-toggle button{font-family:var(--mono);font-size:10.5px;letter-spacing:0.03em;text-transform:uppercase;
+    background:none;border:none;color:var(--faint);padding:6px 11px;border-radius:6px;cursor:pointer}
+  .strategy-toggle button.active{background:var(--brass);color:#0f1826;font-weight:600}
+
+  .chartcard{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  canvas{width:100%;display:block;border-radius:6px}
+  #chart{height:360px;background:var(--ledger2)}
+  #amdstrip{height:34px;background:var(--ledger2);margin-top:8px;border-radius:6px}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+  .panels{display:grid;grid-template-columns:1fr;gap:12px}
+
+  .ticket{position:relative;background:var(--paper);color:#0f1826;border-radius:4px;padding:22px 22px 20px;
+    font-family:var(--mono);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.35);
+    background-image:repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(0,0,0,0.035) 28px);}
+  .ticket::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--brass)}
+  .ticket.bear::before{background:var(--steel)}
+  .ticket-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:8px}
+  .ticket-title{font-family:var(--serif);font-weight:600;font-size:16px;letter-spacing:0.02em}
+  .ticket-tf{font-size:10px;color:#5a5340;margin-bottom:14px}
+  .ticket-bias{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;
+    padding:3px 9px;border-radius:20px;border:1px solid #0f1826}
+  .ticket-bias.bull{background:rgba(199,226,247,0.18)}
+  .ticket-bias.bear{background:rgba(90,100,114,0.18)}
+  .ticket-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 18px;margin-bottom:14px}
+  .tfield .k{font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#5a5340;margin-bottom:2px}
+  .tfield .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+  .ticket-rr{font-size:11px;color:#5a5340;margin-bottom:14px}
+  .lotcalc{background:rgba(0,0,0,0.05);border:1px dashed #a8b8cc;border-radius:4px;padding:10px 12px;margin-bottom:14px}
+  .lotcalc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px}
+  .lotcalc-row label{color:#5a5340;font-weight:600}
+  .lotcalc-row input{width:70px;font-family:var(--mono);font-size:12px;padding:4px 6px;border:1px solid #a8b8cc;border-radius:3px;background:#f4f8fc;color:#0f1826}
+  .lotcalc-row span{color:#0f1826;flex-basis:100%;margin-top:4px}
+  .lotcalc-row b{color:#0f1826}
+  .lot-note{color:#5a5340!important;font-size:10px;font-style:italic}
+  .ticket-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .tbtn{font-family:var(--mono);font-size:10.5px;letter-spacing:0.04em;text-transform:uppercase;
+    background:#0f1826;color:var(--paper);border:none;border-radius:4px;padding:8px 12px;cursor:pointer}
+  .tbtn:hover{background:#332e1e}
+  .tbtn.done{background:#245c3f;cursor:default}
+  .stamp{position:absolute;right:18px;bottom:14px;border:2px solid #7a2020;color:#7a2020;
+    padding:5px 10px;border-radius:4px;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;
+    transform:rotate(-6deg);opacity:0.85;font-weight:600;}
+  .stamp.confirmed{border-color:#245c3f;color:#245c3f}
+  .ticket-note{font-size:10.5px;color:#5a5340;line-height:1.5;padding-top:10px;border-top:1px dashed #a8b8cc}
+
+  .idle-ticket{display:flex;align-items:center;justify-content:center;min-height:150px;
+    border:1px dashed var(--line);border-radius:10px;color:var(--faint);font-family:var(--mono);
+    font-size:12.5px;text-align:center;padding:20px;line-height:1.6}
+
+  .btpanel{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .btpanel h3{font-family:var(--serif);font-size:14px;margin-bottom:4px}
+  .btmeta{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-bottom:14px}
+  .btgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
+  .btcell{background:var(--ledger2);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  .btcell .v{font-family:var(--mono);font-size:17px;font-weight:600}
+  .btcell .k{font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint);margin-top:2px}
+  .btcell .v.pos{color:var(--brass)} .btcell .v.neg{color:var(--steel)}
+  #btequity{width:100%;height:90px;background:var(--ledger2);border-radius:6px;display:block}
+  .btnote{font-family:var(--mono);font-size:10px;color:var(--faint);line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .btloading{font-family:var(--mono);font-size:12px;color:var(--faint);padding:20px;text-align:center}
+  .btverdict{font-family:var(--mono);font-size:11.5px;font-weight:600;padding:8px 12px;border-radius:7px;margin-top:8px}
+  .btverdict.val-good{background:rgba(63,143,111,0.15);color:var(--green-acc);border:1px solid rgba(63,143,111,0.4)}
+  .btverdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc);border:1px solid rgba(181,72,77,0.35)}
+
+  .rulepanel{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .rulepanel h3{font-family:var(--serif);font-size:13px;color:var(--dim);margin-bottom:8px;font-weight:500}
+  .rulepanel p{font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7}
+  .rulepanel b{color:var(--dim)}
+
+  .logpanel{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .logpanel h3{font-family:var(--serif);font-size:13px;color:var(--dim);margin-bottom:10px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+  .logpanel .clear{font-family:var(--mono);font-size:9.5px;color:var(--faint);background:none;border:1px solid var(--line);
+    border-radius:5px;padding:4px 8px;cursor:pointer;text-transform:uppercase}
+  .logrow{font-family:var(--mono);font-size:10.5px;color:var(--dim);padding:7px 0;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .logrow:last-child{border-bottom:none}
+  .logrow .lsym{color:var(--text)}
+  .logempty{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .outcome-btn{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;background:none;border:1px solid var(--line);
+    color:var(--dim);border-radius:5px;padding:3px 7px;cursor:pointer}
+  .outcome-tag{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px}
+  .outcome-win{background:rgba(63,143,111,0.18);color:var(--green-acc)}
+  .outcome-loss{background:rgba(181,72,77,0.18);color:var(--red-acc)}
+  .outcome-be{background:rgba(139,147,161,0.18);color:var(--faint)}
+  .lt-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--dim);padding:6px 0}
+  .lt-row .lt-cap{color:var(--faint);font-size:10px}
+  .lt-row.lt-over{color:var(--red-acc);font-weight:600}
+  .lt-warning{font-family:var(--mono);font-size:11px;color:var(--red-acc);background:rgba(181,72,77,0.1);
+    border:1px solid rgba(181,72,77,0.35);border-radius:6px;padding:8px 10px;margin-top:8px}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="brand">Structure <span>Ledger</span></div>
+      <div class="sub">SMC / AMD monitor · decision support, not execution</div>
+    </div>
+    <div class="controls">
+      <select id="symbol">
+        <optgroup label="Forex / Metals">
+          <option value="frxEURUSD" selected>EUR/USD</option>
+          <option value="frxGBPUSD">GBP/USD</option>
+          <option value="frxUSDJPY">USD/JPY</option>
+          <option value="frxAUDUSD">AUD/USD</option>
+          <option value="frxUSDCAD">USD/CAD</option>
+          <option value="frxUSDCHF">USD/CHF</option>
+          <option value="frxNZDUSD">NZD/USD</option>
+          <option value="frxEURGBP">EUR/GBP</option>
+          <option value="frxEURJPY">EUR/JPY</option>
+          <option value="frxGBPJPY">GBP/JPY</option>
+          <option value="frxXAUUSD">XAU/USD (Gold)</option>
+          <option value="frxXAGUSD">XAG/USD (Silver)</option>
+        </optgroup>
+        <optgroup label="Volatility Indices">
+          <option value="R_10">Volatility 10</option>
+          <option value="R_25">Volatility 25</option>
+          <option value="R_50">Volatility 50</option>
+          <option value="R_75">Volatility 75</option>
+          <option value="R_100">Volatility 100</option>
+        </optgroup>
+        <optgroup label="Volatility (1s)">
+          <option value="1HZ10V">Volatility 10 (1s)</option>
+          <option value="1HZ25V">Volatility 25 (1s)</option>
+          <option value="1HZ50V">Volatility 50 (1s)</option>
+          <option value="1HZ75V">Volatility 75 (1s)</option>
+          <option value="1HZ100V">Volatility 100 (1s)</option>
+        </optgroup>
+        <optgroup label="Boom / Crash">
+          <option value="BOOM300N">Boom 300</option>
+          <option value="BOOM500">Boom 500</option>
+          <option value="BOOM1000">Boom 1000</option>
+          <option value="CRASH300N">Crash 300</option>
+          <option value="CRASH500">Crash 500</option>
+          <option value="CRASH1000">Crash 1000</option>
+        </optgroup>
+        <optgroup label="Step">
+          <option value="stpRNG">Step Index</option>
+        </optgroup>
+        <optgroup label="Jump">
+          <option value="JD10">Jump 10</option>
+          <option value="JD25">Jump 25</option>
+          <option value="JD50">Jump 50</option>
+          <option value="JD75">Jump 75</option>
+          <option value="JD100">Jump 100</option>
+        </optgroup>
+      </select>
+      <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
+      <div class="session"><span class="dot" id="trenddot"></span><span id="trendtxt">Trend Filter: —</span></div>
+      <button class="tbtn" id="btnNotify" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">🔔 Notify: off</button>
+      <div class="status"><span class="pulse" id="pulse"></span><span id="statustxt">connecting…</span></div>
+      <div class="session"><span class="dot" id="healthdot"></span><span id="healthtxt">no data yet</span></div>
+    </div>
+  </header>
+
+  <details class="readfirst">
+    <summary>📖 Read this first — what's actually validated here</summary>
+    <div class="readfirst-body">
+      <p><b>What this is:</b> a live structure-analysis tool. It computes Entry/SL/TP1/TP2 from detected chart patterns. It <b>never places trades</b> — every number shown must be executed manually, by you, after you've confirmed it yourself.</p>
+      <p><b>Validation status by strategy — this is not the same for all four:</b></p>
+      <ul>
+        <li><b>FVG Confluence</b> — mixed results across a broad sweep of symbols tonight: XAU/USD looked promising (20 episodes, +0.29R) but EUR/USD and GBP/USD were inconsistent. Not enough to trust yet — see the live status badge for the current read.</li>
+        <li><b>Volatility Squeeze Breakout</b> — Bollinger Bands compressed inside a Keltner Channel (the "coiled" state), then a directional break of the squeeze's own high/low once volatility expands back out. Target is a measured-move projection off the squeeze range itself, not an arbitrary R:R. Just added — treat every result as unverified until it accumulates real episodes.</li>
+        <li><b>Mean Reversion (Bollinger/RSI2)</b> — Bollinger Band(20,2σ) extreme + RSI(2) confirmation, only when H4 shows no clear trend (fades ranges, not trends — the opposite regime to Trend Following). Just added — treat every result as unverified until it accumulates real episodes.</li>
+        <li><b>Trend Following (Donchian)</b> — H4 momentum-sign trend filter gates an H1 Donchian(20) breakout entry; ATR(14)*2 initial stop, trails at ATR(14)*3 or exits on a Donchian(10) breach against the position, whichever comes first. No fixed take-profit — this only has a working backtest as of tonight, treat as unverified until it accumulates real episodes.</li>
+      </ul>
+      <p><b>Before risking real money on any of this:</b> run it on a demo account first, disclose every setup to someone who'll actually check it (not just click "Mark disclosed"), and size positions to a fixed $ risk you've decided in advance — not to how confident a setup looks.</p>
+    </div>
+  </details>
+
+  <div class="rule11banner">
+    <b>RULE 11</b> — Disclose Entry / SL / TP1 / TP2 before executing, on any instrument.
+    Two-tier TP: close 50% at TP1, move SL to breakeven, ride the rest to TP2. No trade goes in undisclosed.
+  </div>
+
+  <div class="mtf" id="mtfstrip"></div>
+
+  <div class="quote-row">
+    <div><span class="symname" id="symlabel">EUR/USD</span></div>
+    <div class="quote" id="quote">–</div>
+    <div class="strategy-toggle">
+      <button data-s="fvg" class="active" id="btnFvg">FVG Confluence</button>
+      <button data-s="volsqueeze" id="btnVS">Vol Squeeze Breakout</button>
+      <button data-s="meanrev" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
+      <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
+    </div>
+    <select id="btDepth" title="How far back to fetch (Trend Following/Mean Reversion paginate for real depth)">
+      <option value="1">~7 months</option>
+      <option value="2">~14 months</option>
+      <option value="3" selected>~20 months</option>
+      <option value="5">~2.8 years</option>
+      <option value="8">~4.5 years</option>
+    </select>
+    <button class="tbtn" id="btnBacktest" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Run Backtest</button>
+    <label id="htfFilterWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:0.85em">
+      <input type="checkbox" id="htfFilter"> Require H4 trend agreement
+    </label>
+    <label id="pdFilterWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:0.85em">
+      <input type="checkbox" id="pdFilter"> Require OTE zone (62-79%)
+    </label>
+    <label id="dispFilterWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:0.85em">
+      <input type="checkbox" id="dispFilter"> Require displacement candle
+    </label>
+    <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
+      spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
+    </span>
+  </div>
+
+  <div class="rulepanel" id="notifySettingsRow" style="margin-bottom:12px">
+    <h3 style="margin-bottom:10px">Notification watcher — independent of what's on screen; keeps checking in the background while this tab is open</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim)">
+      <label>Strategy:
+        <select id="notifyStrategy">
+          <option value="fvg" selected>FVG Confluence</option>
+          <option value="volsqueeze">Vol Squeeze Breakout</option>
+          <option value="meanrev">Mean Reversion (Bollinger/RSI2)</option>
+          <option value="trend">Trend Following (Donchian)</option>
+        </select>
+      </label>
+    </div>
+    <div id="notifyTfRow" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf60"> 1m</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf300"> 5m</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf900"> 15m</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf3600" checked> 1H</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf14400" checked> 4H</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="notifyTf86400" checked> D1</label>
+    </div>
+  </div>
+
+  <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
+    <h3 style="margin-bottom:6px">Mean Reversion (Bollinger + RSI2) — fixed system, independent of the timeframe strip's structure overlays but runs on whichever timeframe tab is selected above. No user-togglable rules, same as Trend Following:</h3>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
+      BB(20, 2σ) extreme + RSI(2) &lt;5 / &gt;95 &nbsp;·&nbsp; H4 regime filter: only when no clear trend (HH/HL or LH/LL) &nbsp;·&nbsp; SL: ATR(14)×1.5 &nbsp;·&nbsp; TP1: reversion to the 20-mid (close 50%, SL→BE) &nbsp;·&nbsp; TP2: stretch beyond the mid &nbsp;·&nbsp; time-stop: 10 bars if neither hit
+    </div>
+  </div>
+
+  <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
+
+  <div class="chartcard">
+    <canvas id="chart"></canvas>
+    <canvas id="amdstrip"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--brass)"></i>swing / bullish FVG</span>
+      <span><i style="background:var(--steel)"></i>bearish FVG</span>
+      <span><i style="background:var(--grey-acc)"></i>accumulation</span>
+      <span><i style="background:var(--red-acc)"></i>manipulation</span>
+      <span><i style="background:var(--green-acc)"></i>distribution</span>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div id="backtestslot"></div>
+
+    <div id="ticketslot">
+      <div class="idle-ticket">Reading structure — no confluence yet on this timeframe.</div>
+    </div>
+
+    <div class="logpanel" id="losstrackerpanel">
+      <h3>Loss Tracker (from logged outcomes)</h3>
+      <div id="losstracker"></div>
+    </div>
+
+    <div class="logpanel">
+      <h3>Disclosure Log <button class="clear" id="clearlog">Clear</button></h3>
+      <div id="logbody"><div class="logempty">Nothing disclosed yet this browser/device.</div></div>
+    </div>
+
+    <div class="rulepanel">
+      <h3>How this is computed</h3>
+      <p>
+        <b>Multi-timeframe strip</b> — 1m/5m/15m/1H are streamed and analyzed independently, all the time, side by side. Each timeframe has its own genuinely different structure — switching the main chart doesn't "change" a setup, it's reading a different one. Use the strip to check for confluence across timeframes before you rely on any single one.<br>
+        <b>Swings</b> — fractal highs/lows (2 bars either side). <b>BOS</b> — close breaks the last swing with the prevailing trend. <b>CHoCH</b> — close breaks against it, flipping the tracked bias.<br>
+        <b>FVG Confluence strategy</b> — Entry at the near edge of an unmitigated 3-bar imbalance formed with the latest break, SL beyond the invalidating swing, TP1/TP2 at the next opposing swings.<br>
+        <b>Volatility Squeeze Breakout strategy</b> — a Bollinger Band(20,2σ) compressed entirely inside a Keltner Channel(EMA20 ± 1.5×ATR20) marks a "squeeze" — volatility coiled tighter than normal. Once at least 6 consecutive bars have been squeezed and the bands then expand back outside the channel (the "release"), a break of the squeeze's own high or low in that direction is the entry. SL is ATR(20)×1.5; TP1/TP2 are a 1×/2× measured-move projection off the squeeze's own range height, not an arbitrary R:R — a tighter squeeze produces a smaller target, a wider one a bigger target. No H4 filter; self-contained on whichever timeframe tab is selected above. Only just added — treat every result as unverified until it accumulates real episodes.<br>
+        <b>Mean Reversion (Bollinger/RSI2)</b> — the actual defined concept, per Connors' rigorously-backtested short-term reversal research: price must close beyond a 20-period Bollinger Band (2 standard deviations) AND the 2-period RSI must be at a genuine extreme (below 5 for a long, above 95 for a short) — both conditions, not either alone. A regime filter (H4 swing structure showing neither a clear HH/HL uptrend nor LH/LL downtrend) gates every signal, since Bollinger mean-reversion is documented to "walk the bands" and bleed out a string of losses during real trends — this filter exists specifically to avoid fading a strong trend. Target is the 20-period mid-band (the actual mean being reverted to) for TP1 (close 50%, SL→BE), with a modest stretch beyond it for TP2. Stop is ATR(14)×1.5. A 10-bar time-stop force-closes the trade if neither the stop nor target is hit by then, since mean-reversion setups that haven't resolved quickly usually aren't going to. Runs on whichever timeframe tab is selected above, unlike Trend Following's fixed H1/H4. Only just added — treat every result as unverified until it accumulates real episodes.
+        <b>Trend Following (Donchian)</b> — the actual defined concept: H4 momentum sign (200-bar lookback) must agree with the breakout direction before anything is shown; entry is an H1 Donchian(20) channel breakout (price closing beyond the highest high/lowest low of the last 20 fully-closed bars, excluding the current one). Stop starts at ATR(14)×2, then trails at ATR(14)×3 and only ever tightens in the trade's favor, or the trade exits on a Donchian(10) breach against the position — whichever happens first. No fixed take-profit: TP1/TP2 shown are reference-only (1.5R/3R), not the real exit rule — this strategy's whole edge comes from letting winners run via the trail rather than capping them at a target, which is also why its backtest can't reuse the fixed-target R-multiple engine the other three strategies share; it tracks an actually open position bar-by-bar instead. Ported from the corrected TSMOM_Donchian_EA.mq5. Structure is fixed to H1/H4, regardless of the timeframe strip above. Only just added — treat every result from it as unverified until it accumulates real episodes, same as anything else here on day one.
+        <b>Disclosure log</b> — stored only in this browser, on this device. Clearing browser data erases it.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  const APP_ID = '33TNMQDPo552FXscNPURC';
+  const WS_URL = `wss://api.derivws.com/trading/v1/options/ws/public?app_id=${APP_ID}`;
+  const TFS = [60,300,900,3600,14400,86400];
+  const TF_LABELS = {60:'1m',300:'5m',900:'15m',3600:'1H',14400:'4H',86400:'D1'};
+  let ws, curSym = document.getElementById('symbol').value, curTf = 300, curStrategy = 'fvg';
+  let pendingEABacktest = {};
+  let lastUpdateTime = null;
+  let candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[]};
+  let pipDecimals = {};
+  let disclosedKey = null;
+  const MAXC = 220;
+  const LOG_KEY = 'ruleEleven_disclosure_log';
+  const PREFS_KEY = 'structureLedger_prefs';
+  function savePrefs(){
+    try{
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        sym: curSym, strategy: curStrategy, tf: curTf,
+        risk: riskAmountInput, spread: spreadCostR
+      }));
+    }catch(_){}
+  }
+  function loadPrefs(){
+    try{ return JSON.parse(localStorage.getItem(PREFS_KEY) || 'null'); }catch(_){ return null; }
+  }
+
+  const $ = id => document.getElementById(id);
+  const pulse = $('pulse'), statustxt = $('statustxt');
+
+  function setStatus(on, txt){ pulse.classList.toggle('on', on); statustxt.textContent = txt; }
+
+  function connect(){
+    setStatus(false, 'connecting…');
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+      setStatus(true, 'live');
+      ws.send(JSON.stringify({active_symbols:'brief'}));
+      subscribeAll();
+    };
+    ws.onmessage = e => handle(JSON.parse(e.data));
+    ws.onclose = () => { setStatus(false, 'reconnecting…'); setTimeout(connect, 2500); };
+    ws.onerror = () => { try{ws.close();}catch(_){} };
+  }
+
+  function subscribeAll(){
+    candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[]};
+    disclosedKey = null;
+    lastUpdateTime = null;
+    ws.send(JSON.stringify({forget_all:'candles'}));
+    for (const tf of TFS){
+      ws.send(JSON.stringify({
+        ticks_history: curSym, style:'candles', granularity: tf,
+        count: MAXC, end:'latest', subscribe:1
+      }));
+    }
+  }
+
+  function decimalsFor(sym){
+    const pip = pipDecimals[sym];
+    if (pip) return Math.max(0, Math.round(-Math.log10(pip)));
+    return sym.startsWith('frx') ? 5 : 2;
+  }
+
+  function handle(m){
+    if (m.error){
+      if (m.passthrough && m.passthrough.purpose === 'backtest'){
+        if (m.passthrough.retried){ renderBacktestError(m.error.message); return; }
+        // retry once with a smaller count in case 5000 was rejected
+        ws.send(JSON.stringify({
+          ticks_history: m.passthrough.sym, style:'candles', granularity: m.passthrough.tf,
+          count: 1000, end:'latest',
+          passthrough: Object.assign({}, m.passthrough, {retried:true})
+        }));
+        return;
+      }
+      if (m.passthrough && m.passthrough.purpose === 'backtest_ea_page'){
+        if (m.passthrough.retried){ renderBacktestError(`${m.passthrough.part.toUpperCase()} page ${m.passthrough.pageIndex+1}: ${m.error.message}`); delete pendingEABacktest[m.passthrough.runId]; return; }
+        requestHistoryPage(m.passthrough.sym, m.passthrough.gran, Math.max(200, Math.round(m.passthrough.count/3)), m.passthrough.end || 'latest',
+          Object.assign({}, m.passthrough, {retried:true}));
+        return;
+      }
+      setStatus(false, 'api: ' + m.error.message); return;
+    }
+    if (m.msg_type === 'candles' && m.passthrough && m.passthrough.purpose === 'backtest'){
+      const hist = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
+      const results = simulateBacktest(hist, m.passthrough.strat);
+      renderBacktestResults(results, hist, m.passthrough);
+      return;
+    }
+    if (m.msg_type === 'candles' && m.passthrough && m.passthrough.purpose === 'backtest_ea_page'){
+      const {runId, part, gran, count, pageIndex, pagesWanted, sym, requestedEnd} = m.passthrough;
+      if (!pendingEABacktest[runId]){ return; } // run was superseded/cleared
+      const batch = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
+      // Some historical requests past the server's real depth limit come back
+      // as if successful but silently contain recent/"latest" data instead of
+      // the older window actually requested (no error, just wrong data). Detect
+      // this by comparing against wall-clock "now" rather than a small fixed
+      // offset from the requested end — a small/tight threshold false-triggers
+      // on ordinary weekend/holiday closures (forex/gold gap ~48-60h every
+      // weekend), which is normal and not a sign of hitting the real floor.
+      // Only flag it when we asked for something well in the past (10+ days
+      // back) but got back something suspiciously close to today (within 3
+      // days) — that gap is far bigger than any normal market closure.
+      const newestInBatch = batch.length ? batch[batch.length-1].epoch : null;
+      const nowEpoch = Math.floor(Date.now()/1000);
+      const askedForOld = requestedEnd != null && (nowEpoch - requestedEnd) > 10*86400;
+      const gotSuspiciouslyRecent = newestInBatch != null && (nowEpoch - newestInBatch) < 3*86400;
+      const hitServerFloor = askedForOld && gotSuspiciouslyRecent;
+      pendingEABacktest[runId][part+'_pages'].push(batch);
+      const gotEnough = (pageIndex+1 >= pagesWanted) || batch.length === 0 || hitServerFloor;
+      if (gotEnough){
+        finalizePart(runId, part);
+      } else {
+        const earliest = batch[0].epoch;
+        $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${part.toUpperCase()} history — page ${pageIndex+2} of ${pagesWanted}…</div></div>`;
+        requestHistoryPage(sym, gran, count, earliest - gran, {runId, part, pageIndex:pageIndex+1, pagesWanted, requestedEnd: earliest - gran});
+      }
+      return;
+    }
+    if (m.msg_type === 'active_symbols'){
+      for (const s of m.active_symbols){ if (s.pip) pipDecimals[s.symbol] = s.pip; }
+      return;
+    }
+    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym){
+      const gran = m.echo_req.granularity;
+      candlesByTf[gran] = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
+      renderAll();
+    }
+    if (m.msg_type === 'ohlc' && m.ohlc.symbol === curSym){
+      const gran = m.ohlc.granularity;
+      if (!candlesByTf[gran]) return;
+      const c = { epoch:m.ohlc.open_time, open:+m.ohlc.open, high:+m.ohlc.high, low:+m.ohlc.low, close:+m.ohlc.close };
+      const arr = candlesByTf[gran];
+      const last = arr[arr.length-1];
+      if (last && last.epoch === c.epoch){ arr[arr.length-1] = c; }
+      else { arr.push(c); if (arr.length > MAXC) arr.shift(); }
+      lastUpdateTime = Date.now();
+      renderAll();
+    }
+  }
+
+  // ---------- structure analysis ----------
+  function computeSwings(c){
+    const n = 2, swings = [];
+    for (let i=n; i<c.length-n; i++){
+      let isHigh = true, isLow = true;
+      for (let k=1;k<=n;k++){
+        if (c[i].high <= c[i-k].high || c[i].high <= c[i+k].high) isHigh = false;
+        if (c[i].low  >= c[i-k].low  || c[i].low  >= c[i+k].low ) isLow  = false;
+      }
+      if (isHigh) swings.push({index:i, type:'high', price:c[i].high});
+      if (isLow)  swings.push({index:i, type:'low',  price:c[i].low});
+    }
+    return swings;
+  }
+
+  function computeStructureEvents(c, swings){
+    const events = [];
+    let trend = null;
+    let lastHigh = null, lastLow = null;
+    const swingsByIdx = [...swings].sort((a,b)=>a.index-b.index);
+    let si = 0;
+    for (let i=0; i<c.length; i++){
+      while (si < swingsByIdx.length && swingsByIdx[si].index === i){
+        const s = swingsByIdx[si];
+        if (s.type === 'high' && (!lastHigh || !lastHigh.broken)) lastHigh = {index:s.index, price:s.price, broken:false};
+        if (s.type === 'low'  && (!lastLow  || !lastLow.broken))  lastLow  = {index:s.index, price:s.price, broken:false};
+        si++;
+      }
+      if (lastHigh && !lastHigh.broken && c[i].close > lastHigh.price){
+        const type = (trend === 'bull') ? 'BOS' : 'CHoCH';
+        events.push({index:i, type, direction:'bull', price:lastHigh.price, invalidation: lastLow ? lastLow.price : null});
+        trend = 'bull'; lastHigh.broken = true;
+      }
+      if (lastLow && !lastLow.broken && c[i].close < lastLow.price){
+        const type = (trend === 'bear') ? 'BOS' : 'CHoCH';
+        events.push({index:i, type, direction:'bear', price:lastLow.price, invalidation: lastHigh ? lastHigh.price : null});
+        trend = 'bear'; lastLow.broken = true;
+      }
+    }
+    return {events, trend};
+  }
+
+  function computeFVGs(c){
+    const fvgs = [];
+    for (let i=2;i<c.length;i++){
+      if (c[i].low > c[i-2].high){
+        fvgs.push({start:i-2, end:i, top:c[i].low, bottom:c[i-2].high, direction:'bull', mitigated:false, mitIndex:null});
+      }
+      if (c[i].high < c[i-2].low){
+        fvgs.push({start:i-2, end:i, top:c[i-2].low, bottom:c[i].high, direction:'bear', mitigated:false, mitIndex:null});
+      }
+    }
+    for (const g of fvgs){
+      for (let j=g.end+1;j<c.length;j++){
+        if (c[j].low <= g.top && c[j].high >= g.bottom){ g.mitigated = true; g.mitIndex = j; break; }
+      }
+    }
+    return fvgs;
+  }
+
+  function computeAMD(c){
+    const blockSize = 8, blocks = [];
+    for (let i=0;i+blockSize<=c.length;i+=blockSize){
+      const seg = c.slice(i, i+blockSize);
+      const hi = Math.max(...seg.map(x=>x.high)), lo = Math.min(...seg.map(x=>x.low));
+      const range = hi-lo;
+      const avgBody = seg.reduce((s,x)=>s+Math.abs(x.close-x.open),0)/seg.length;
+      const netMove = Math.abs(seg[seg.length-1].close - seg[0].open);
+      const wickiness = seg.reduce((s,x)=>s+((x.high-x.low)-Math.abs(x.close-x.open)),0)/seg.length;
+      let phase = 'accumulation';
+      if (netMove > range*0.6 && avgBody > wickiness*0.7) phase = 'distribution';
+      else if (wickiness > avgBody*1.4) phase = 'manipulation';
+      blocks.push({start:i, end:i+blockSize-1, phase});
+    }
+    return blocks;
+  }
+
+  function nearestOpposing(swings, fromIndex, direction, entry){
+    const want = direction==='bull' ? 'high' : 'low';
+    const candidates = swings.filter(s => s.type===want && s.index>fromIndex &&
+        (direction==='bull' ? s.price > entry : s.price < entry))
+      .sort((a,b)=>a.index-b.index);
+    // Keep only swings that are a meaningful further step beyond the previous
+    // kept one — otherwise two swings close in price but different in time
+    // (e.g. a double-top) produce a TP1/TP2 that are practically the same
+    // level, which isn't a real two-tier target.
+    const MIN_STEP_FRACTION = 0.15;
+    const kept = [];
+    for (const s of candidates){
+      if (!kept.length){ kept.push(s); continue; }
+      const prev = kept[kept.length-1];
+      const prevDist = Math.abs(prev.price - entry);
+      const step = Math.abs(s.price - prev.price);
+      if (step >= prevDist * MIN_STEP_FRACTION) kept.push(s);
+      if (kept.length >= 2) break;
+    }
+    return kept;
+  }
+
+  // Final sanity gate applied to every ticket, every strategy: reject anything
+  // whose geometry doesn't actually respect its own stated bias, or whose
+  // TP1 is too close to be a realistic target. No ticket is ever shown that
+  // fails this, regardless of what upstream logic produced it.
+  const MIN_RR1 = 0.5;
+  // Reject stops so tight they're indistinguishable from noise/spread — these
+  // show up as huge nominal R:R (tiny denominator) but are essentially
+  // guaranteed to be clipped the moment they fill. Threshold is relative to
+  // price (~0.085% ≈ 10 pips on a 1.16 EURUSD price) so it scales sensibly
+  // across forex, metals, and synthetic indices without a per-symbol table.
+  // This is deliberately strategy-specific: FVG Confluence's degenerate
+  // near-zero stops (SL almost equal to entry, a leftover artifact of the
+  // invalidation swing sitting right on the FVG edge) are genuine noise. SBR/
+  // RBS Retest, by contrast, is *designed* around a tight stop placed just
+  // beyond the retest candle — that's the point of a retest entry, not a bug
+  // — so it gets a much smaller floor, just enough to catch true zero-risk
+  // degenerate cases without rejecting its normal, legitimate setups.
+  const MIN_RISK_FRACTION = 0.00085;
+  const MIN_RISK_FRACTION_TIGHT = 0.00015;
+  function validateTicket(t, minRiskFraction){
+    if (!t) return null;
+    const floor = minRiskFraction != null ? minRiskFraction : MIN_RISK_FRACTION;
+    const {dir, entry, sl, tp1, tp2} = t;
+    const orderedOK = dir==='bull'
+      ? (sl < entry && entry < tp1 && tp1 < tp2)
+      : (sl > entry && entry > tp1 && tp1 > tp2);
+    if (!orderedOK) return null;
+    const risk = Math.abs(entry - sl);
+    if (risk <= 0) return null;
+    if (risk < Math.abs(entry) * floor) return null;
+    const rr1 = Math.abs(tp1 - entry) / risk;
+    if (rr1 < MIN_RR1) return null;
+    return t;
+  }
+
+  // ---------- ported from Volatility_SBR_RBS_EA.mq5 ----------
+  // NOTE: chronological indices here (0=oldest...end=newest), opposite of
+  // MQL5's series arrays (0=newest). Search directions below are translated
+  // accordingly but the underlying rules are identical to the EA.
+
+  function findLastSwingHigh(c, lb, beforeIndex){
+    for (let i=beforeIndex; i>=lb; i--){
+      if (i+lb >= c.length) continue;
+      let ok = true;
+      for (let j=1;j<=lb;j++){ if (c[i].high < c[i-j].high || c[i].high < c[i+j].high){ ok=false; break; } }
+      if (ok) return i;
+    }
+    return -1;
+  }
+  function findLastSwingLow(c, lb, beforeIndex){
+    for (let i=beforeIndex; i>=lb; i--){
+      if (i+lb >= c.length) continue;
+      let ok = true;
+      for (let j=1;j<=lb;j++){ if (c[i].low > c[i-j].low || c[i].low > c[i+j].low){ ok=false; break; } }
+      if (ok) return i;
+    }
+    return -1;
+  }
+  function findBreakBelow(c, level, swingIdx, maxBars){
+    const ceil = Math.min(c.length-1, swingIdx+maxBars);
+    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].low < level) return i; }
+    return -1;
+  }
+  function findBreakAbove(c, level, swingIdx, maxBars){
+    const ceil = Math.min(c.length-1, swingIdx+maxBars);
+    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].high > level) return i; }
+    return -1;
+  }
+  function getOrderBlockRange(c, barIdx){
+    return { obLow: Math.min(c[barIdx].open, c[barIdx].close), obHigh: Math.max(c[barIdx].open, c[barIdx].close) };
+  }
+  function detectFVGStraddle(c, b, bullish){
+    if (b-1 < 0 || b+1 >= c.length) return false;
+    return bullish ? (c[b+1].low > c[b-1].high) : (c[b+1].high < c[b-1].low);
+  }
+  function detectMitigationBlock(c, b, bullish){
+    const floor = Math.max(0, b-6);
+    for (let i=b-1; i>=floor; i--){
+      const isRed = c[i].close < c[i].open, isGreen = c[i].close > c[i].open;
+      if (bullish && isRed) return true;
+      if (!bullish && isGreen) return true;
+    }
+    return false;
+  }
+  function computeTrendBiasEA(c, lb){
+    if (!c || c.length < lb*4+4) return 0;
+    const h1 = findLastSwingHigh(c, lb, c.length-1-lb);
+    if (h1 < 0) return 0;
+    const h2 = findLastSwingHigh(c, lb, h1-1);
+    const l1 = findLastSwingLow(c, lb, c.length-1-lb);
+    if (l1 < 0) return 0;
+    const l2 = findLastSwingLow(c, lb, l1-1);
+    if (h2 < 0 || l2 < 0) return 0;
+    const higherHigh = c[h1].high > c[h2].high, higherLow = c[l1].low > c[l2].low;
+    const lowerHigh = c[h1].high < c[h2].high, lowerLow = c[l1].low < c[l2].low;
+    if (higherHigh && higherLow) return 1;
+    if (lowerHigh && lowerLow) return -1;
+    return 0;
+  }
+
+  // Shared swing-lookback used by every H4/D1 trend-bias check in the app
+  // (was introduced for the old EA Logic strategy, now used by FVG's optional H4 filter
+  // and Mean Reversion's regime filter).
+  const EA_SWING_LB = 5;
+
+  // ---------- Mean Reversion (Bollinger Bands + RSI2) ----------
+  // Connors-style short-term reversal: BB(20,2σ) extreme + RSI(2) extreme,
+  // both required. Gated by an H4 regime filter (reuses the same swing-based
+  // trend-bias check as FVG's optional H4 filter) so it
+  // only fires when the market has no clear trend structure — the documented
+  // failure mode for this family is "walking the bands" during a real trend,
+  // and this filter exists specifically to avoid that.
+  const MR_BB_PERIOD = 20, MR_BB_MULT = 2.0, MR_RSI_PERIOD = 2,
+        MR_RSI_OVERSOLD = 5, MR_RSI_OVERBOUGHT = 95, MR_ATR_PERIOD = 14,
+        MR_SL_MULT = 1.5, MR_MAX_BARS = 10;
+
+  function computeBB(c, uptoIndex, period, mult){
+    if (uptoIndex < period-1) return null;
+    let sum = 0;
+    for (let i = uptoIndex-period+1; i <= uptoIndex; i++) sum += c[i].close;
+    const mean = sum/period;
+    let variance = 0;
+    for (let i = uptoIndex-period+1; i <= uptoIndex; i++){ const d = c[i].close-mean; variance += d*d; }
+    const stdev = Math.sqrt(variance/period);
+    return { mid: mean, upper: mean+mult*stdev, lower: mean-mult*stdev };
+  }
+  function computeRSI(c, uptoIndex, period){
+    if (uptoIndex < period) return null;
+    let gainSum = 0, lossSum = 0;
+    for (let i = uptoIndex-period+1; i <= uptoIndex; i++){
+      const chg = c[i].close - c[i-1].close;
+      if (chg > 0) gainSum += chg; else lossSum += -chg;
+    }
+    const avgGain = gainSum/period, avgLoss = lossSum/period;
+    if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
+    return 100 - (100/(1 + avgGain/avgLoss));
+  }
+
+  let lastMRDiagnostic = null;
+
+  function buildMeanReversionTicket(c, h4Data){
+    lastMRDiagnostic = null;
+    if (!c || c.length < MR_BB_PERIOD+MR_ATR_PERIOD+2) return null;
+    const i = c.length-1;
+    const bb = computeBB(c, i, MR_BB_PERIOD, MR_BB_MULT);
+    const rsi = computeRSI(c, i, MR_RSI_PERIOD);
+    if (!bb || rsi == null) return null;
+    const close = c[i].close;
+    let dir = null;
+    if (close <= bb.lower && rsi <= MR_RSI_OVERSOLD) dir = 'bull';
+    else if (close >= bb.upper && rsi >= MR_RSI_OVERBOUGHT) dir = 'bear';
+
+    let regimeOK = true, regimeNote = 'no H4 data';
+    if (h4Data){
+      const bias = computeTrendBiasEA(h4Data, EA_SWING_LB);
+      regimeOK = (bias === 0);
+      regimeNote = regimeOK ? 'pass (no clear H4 trend)' : 'FAIL — H4 is trending, fade blocked';
+    }
+    lastMRDiagnostic = { dir, rsi: rsi.toFixed(1), touchedBand: close<=bb.lower||close>=bb.upper, regime: regimeNote };
+    if (!dir || !regimeOK) return null;
+
+    const atrVal = computeATR(c, i, MR_ATR_PERIOD);
+    if (!atrVal) return null;
+    const entry = close;
+    const sl = dir==='bull' ? entry - atrVal*MR_SL_MULT : entry + atrVal*MR_SL_MULT;
+    const risk = Math.abs(entry-sl);
+    if (risk <= 0) return null;
+    const tp1 = bb.mid; // the actual mean being reverted to
+    const distToMid = Math.abs(tp1-entry);
+    const tp2 = dir==='bull' ? entry + distToMid*1.6 : entry - distToMid*1.6; // modest stretch past the mean
+    const rr1 = distToMid/risk, rr2 = Math.abs(tp2-entry)/risk;
+    const d = decimalsFor(curSym);
+    return validateTicket({
+      dir, label:'MeanRev', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+      key: `meanrev|${curSym}|${curTf}|${dir}|${c[i].epoch}`
+    });
+  }
+
+  // Time-stopped variant of the fixed-TP1/TP2 engine: identical fill-gate and
+  // SL/TP1(partial)/TP2 logic to simulateTrade, but force-closes at market
+  // after MR_MAX_BARS if neither has resolved — mean-reversion setups that
+  // haven't worked out quickly usually aren't going to, per the source
+  // research's own time-stop discipline.
+  function simulateMeanReversionTrade(hist, startIdx, t, maxBars){
+    let j = startIdx, filled = false;
+    for (; j<hist.length; j++){
+      if (t.dir==='bull' ? (hist[j].low <= t.entry) : (hist[j].high >= t.entry)){ filled = true; break; }
+    }
+    if (!filled) return {result:'never filled', R:0, exitIndex:hist.length-1};
+    const deadline = j + maxBars;
+    let hitTP1 = false;
+    for (; j<hist.length; j++){
+      const c = hist[j];
+      if (t.dir==='bull'){
+        if (!hitTP1){
+          if (c.low <= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp1) hitTP1 = true;
+        } else {
+          if (c.low <= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      } else {
+        if (!hitTP1){
+          if (c.high >= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp1) hitTP1 = true;
+        } else {
+          if (c.high >= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      }
+      if (j >= deadline){
+        const exitPrice = c.close;
+        const risk = Math.abs(t.entry - t.sl);
+        const openR = risk>0 ? (t.dir==='bull' ? (exitPrice-t.entry)/risk : (t.entry-exitPrice)/risk) : 0;
+        const R = (hitTP1 ? 0.5*t.rr1 : 0) + (hitTP1 ? 0.5 : 1)*openR - spreadCostR;
+        const isFullLoss = R <= -0.98;
+        return { result: isFullLoss?'SL':'TP1+TP2', rr1: isFullLoss?0:R, rr2: isFullLoss?0:R, R, exitIndex:j };
+      }
+    }
+    return {result:'open', R:0, exitIndex:hist.length-1};
+  }
+
+  // ---------- Trend Following (Donchian breakout + ATR trailing stop) ----------
+  // Mirrors the corrected TSMOM_Donchian_EA.mq5: an H4 momentum-sign trend
+  // filter gates an H1 Donchian(20) breakout entry; the stop starts at
+  // ATR(14)*2 and trails at ATR(14)*3, or the trade exits on a Donchian(10)
+  // breach in the opposite direction — whichever comes first. No fixed take
+  // profit: letting winners run via the trail is the actual mechanism this
+  // family of strategies is evidenced on, not a target price.
+  const TREND_LOOKBACK = 200, ENTRY_PERIOD = 20, EXIT_PERIOD = 10,
+        ATR_PERIOD = 14, ATR_SL_MULT = 2.0, ATR_TRAIL_MULT = 3.0;
+
+  function computeATR(c, uptoIndex, period){
+    if (uptoIndex < period) return null;
+    let sum = 0;
+    for (let i = uptoIndex-period+1; i <= uptoIndex; i++){
+      const prevClose = i>0 ? c[i-1].close : c[i].open;
+      const tr = Math.max(c[i].high-c[i].low, Math.abs(c[i].high-prevClose), Math.abs(c[i].low-prevClose));
+      sum += tr;
+    }
+    return sum/period;
+  }
+  function donchianChannel(c, uptoIndex, period){
+    if (uptoIndex < period-1) return null;
+    let hi = -Infinity, lo = Infinity;
+    for (let i = uptoIndex-period+1; i <= uptoIndex; i++){ hi = Math.max(hi, c[i].high); lo = Math.min(lo, c[i].low); }
+    return { hi, lo };
+  }
+  function trendDirectionTF(h4, uptoIndex, lookback){
+    if (uptoIndex < lookback) return 0;
+    const closeNow = h4[uptoIndex].close, closeThen = h4[uptoIndex-lookback].close;
+    if (!closeThen) return 0;
+    const ret = (closeNow-closeThen)/closeThen;
+    return ret>0 ? 1 : ret<0 ? -1 : 0;
+  }
+
+  // Live/decision-support ticket: shows the breakout LEVEL to watch, not a
+  // filled price — this tool computes tickets, it never executes. TP1/TP2
+  // are reference-only (a 1.5R partial and a 3R stretch target); the real
+  // exit rule is the trailing stop / opposite Donchian(10) breach, tracked
+  // live rather than a fixed price.
+  function buildTrendTicket(h1, h4){
+    if (!h1 || h1.length < ENTRY_PERIOD+ATR_PERIOD+2) return null;
+    if (!h4 || h4.length < TREND_LOOKBACK+2) return null;
+    const dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
+    if (dir4 === 0) return null;
+    const i = h1.length-1;
+    const atrVal = computeATR(h1, i-1, ATR_PERIOD);
+    const channel = donchianChannel(h1, i-1, ENTRY_PERIOD);
+    if (!atrVal || !channel) return null;
+    const price = h1[i].close;
+    let dir = null;
+    if (dir4===1 && price > channel.hi) dir='bull';
+    else if (dir4===-1 && price < channel.lo) dir='bear';
+    if (!dir) return null;
+    const entry = dir==='bull' ? channel.hi : channel.lo;
+    const sl = dir==='bull' ? entry - atrVal*ATR_SL_MULT : entry + atrVal*ATR_SL_MULT;
+    const risk = Math.abs(entry-sl);
+    const tp1 = dir==='bull' ? entry + risk*1.5 : entry - risk*1.5;
+    const tp2 = dir==='bull' ? entry + risk*3.0 : entry - risk*3.0;
+    const d = decimalsFor(curSym);
+    return validateTicket({
+      dir, label:'Trend', entry, sl, tp1, tp2, rr1:1.5, rr2:3.0, decimals:d,
+      key: `trend|${curSym}|${dir}|${h1[i].epoch}`,
+      trailing: true
+    });
+  }
+
+
+  // Premium/discount / OTE zone, built correctly this time:
+  // "Premium and discount zones must be drawn from external swing highs and
+  // swing lows, not from internal price swings" — so the range is [origin of
+  // the current leg (lastEvent.invalidation, the swing that started the move),
+  // extreme reached since the break (scanned forward, not a nearby internal
+  // swing)]. Within that range, OTE narrows further to the 62%-79%
+  // retracement band, which is what the source strategy actually trades off
+  // rather than a plain 50% split.
+  function computeOTEZone(c, lastEvent){
+    if (lastEvent.invalidation == null) return null;
+    const dir = lastEvent.direction;
+    const origin = lastEvent.invalidation; // external swing that started the leg
+    let extreme = dir==='bull' ? -Infinity : Infinity;
+    for (let i = lastEvent.index; i < c.length; i++){
+      if (dir==='bull') extreme = Math.max(extreme, c[i].high);
+      else extreme = Math.min(extreme, c[i].low);
+    }
+    const high = dir==='bull' ? extreme : origin;
+    const low  = dir==='bull' ? origin  : extreme;
+    if (high <= low) return null;
+    const range = high - low;
+    return dir==='bull'
+      ? { low: high - 0.79*range, high: high - 0.62*range }   // retracement down from the high
+      : { low: low + 0.62*range,  high: low + 0.79*range };   // retracement up from the low
+  }
+
+  // Displacement candle: the candle that actually broke structure should be
+  // a meaningfully large/strong move relative to recent volatility, not a
+  // marginal close that barely ticked past the prior swing. Compares this
+  // candle's full range against the average range of the preceding bars.
+  function isDisplacementCandle(c, index, lookback, minMultiple){
+    if (index < lookback) return true; // not enough history yet, don't block
+    let sumRange = 0;
+    for (let i = index-lookback; i < index; i++) sumRange += (c[i].high - c[i].low);
+    const avgRange = sumRange / lookback;
+    const thisRange = c[index].high - c[index].low;
+    return avgRange > 0 && thisRange >= avgRange * minMultiple;
+  }
+  const DISPLACEMENT_LOOKBACK = 14, DISPLACEMENT_MULTIPLE = 1.5;
+
+  function buildFVGTicket(c, swings, structure, fvgs, h4Data, requirePD, requireDisp){
+    if (!structure.events.length) return null;
+    const lastEvent = structure.events[structure.events.length-1];
+    const dir = lastEvent.direction;
+    if (requireDisp && !isDisplacementCandle(c, lastEvent.index, DISPLACEMENT_LOOKBACK, DISPLACEMENT_MULTIPLE)) return null;
+    // Optional HTF alignment filter: only take the trade if H4 structure
+    // agrees with the trade direction. Reuses the same bias calculation
+    // already used elsewhere for H4 trend-bias checks.
+    if (h4Data){
+      const htfBias = computeTrendBiasEA(h4Data, EA_SWING_LB);
+      const htfOK = dir==='bull' ? (htfBias === 1) : (htfBias === -1);
+      if (!htfOK) return null;
+    }
+    const candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= lastEvent.index-6);
+    if (!candidateFvgs.length) return null;
+    const gap = candidateFvgs[candidateFvgs.length-1];
+    const entry = dir==='bull' ? gap.top : gap.bottom;
+    if (requirePD){
+      const zone = computeOTEZone(c, lastEvent);
+      if (!zone) return null;
+      if (!(entry >= zone.low && entry <= zone.high)) return null;
+    }
+    const invalidation = lastEvent.invalidation;
+    if (invalidation == null) return null;
+    const priceScale = c[c.length-1].close;
+    const buffer = priceScale * 0.0006;
+    const sl = dir==='bull' ? invalidation - buffer : invalidation + buffer;
+    const opposing = nearestOpposing(swings, lastEvent.index, dir, entry);
+    if (!opposing.length) return null;
+    const tp1 = opposing[0].price;
+    const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
+    const risk = Math.abs(entry-sl);
+    const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
+    const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
+    const d = decimalsFor(curSym);
+    return validateTicket({dir, label:lastEvent.type, entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+      key: `fvg|${curSym}|${curTf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}`});
+  }
+
+  // ---------- Volatility Squeeze Breakout (Bollinger inside Keltner) ----------
+  // A third, distinct regime from the other two: Trend Following assumes the
+  // market is already moving, Mean Reversion assumes it's stuck in a range —
+  // this one watches for the transition between those states. When Bollinger
+  // Bands compress entirely inside a Keltner Channel, volatility has coiled
+  // tighter than normal ("the squeeze"); once bands expand back outside the
+  // channel and price breaks the squeeze's own high/low, that's the entry.
+  const VSB_BB_PERIOD = 20, VSB_BB_MULT = 2.0, VSB_KC_PERIOD = 20, VSB_KC_MULT = 1.5,
+        VSB_MIN_SQUEEZE_BARS = 6, VSB_SL_ATR_MULT = 1.5, VSB_TARGET_MULT1 = 1.0, VSB_TARGET_MULT2 = 2.0;
+
+  function computeEMASeries(c, period){
+    if (c.length < period) return null;
+    const out = new Array(c.length).fill(null);
+    let sum = 0;
+    for (let i=0; i<period; i++) sum += c[i].close;
+    let ema = sum/period;
+    out[period-1] = ema;
+    const k = 2/(period+1);
+    for (let i=period; i<c.length; i++){ ema = c[i].close*k + ema*(1-k); out[i] = ema; }
+    return out;
+  }
+  function computeKeltner(c, uptoIndex, emaSeries, atrPeriod, mult){
+    if (!emaSeries || emaSeries[uptoIndex] == null) return null;
+    const atrVal = computeATR(c, uptoIndex, atrPeriod);
+    if (!atrVal) return null;
+    return { mid: emaSeries[uptoIndex], upper: emaSeries[uptoIndex]+mult*atrVal, lower: emaSeries[uptoIndex]-mult*atrVal };
+  }
+  function isSqueezeOn(bb, kc){ return bb.upper < kc.upper && bb.lower > kc.lower; }
+
+  function buildVolSqueezeTicket(c){
+    const minLen = VSB_BB_PERIOD + VSB_MIN_SQUEEZE_BARS + 5;
+    if (!c || c.length < minLen) return null;
+    const emaSeries = computeEMASeries(c, VSB_KC_PERIOD);
+    if (!emaSeries) return null;
+    const i = c.length-1;
+    const bbNow = computeBB(c, i, VSB_BB_PERIOD, VSB_BB_MULT);
+    const kcNow = computeKeltner(c, i, emaSeries, VSB_KC_PERIOD, VSB_KC_MULT);
+    if (!bbNow || !kcNow) return null;
+    if (isSqueezeOn(bbNow, kcNow)) return null; // still coiled — nothing to trade until it releases
+
+    // Walk backward from the release bar to see how long the squeeze actually
+    // lasted, and what range it coiled within — both the entry trigger (break
+    // of this range) and the target (measured move off its height) depend on it.
+    let squeezeBars = 0, squeezeHigh = -Infinity, squeezeLow = Infinity;
+    for (let j = i-1; j >= VSB_BB_PERIOD-1 && j >= VSB_KC_PERIOD-1; j--){
+      const bbJ = computeBB(c, j, VSB_BB_PERIOD, VSB_BB_MULT);
+      const kcJ = computeKeltner(c, j, emaSeries, VSB_KC_PERIOD, VSB_KC_MULT);
+      if (!bbJ || !kcJ || !isSqueezeOn(bbJ, kcJ)) break;
+      squeezeBars++;
+      squeezeHigh = Math.max(squeezeHigh, c[j].high);
+      squeezeLow = Math.min(squeezeLow, c[j].low);
+    }
+    if (squeezeBars < VSB_MIN_SQUEEZE_BARS) return null; // release wasn't preceded by a real squeeze
+
+    const close = c[i].close;
+    let dir = null;
+    if (close > squeezeHigh) dir = 'bull';
+    else if (close < squeezeLow) dir = 'bear';
+    if (!dir) return null; // released but hasn't actually broken the squeeze range yet
+
+    const atrVal = computeATR(c, i, VSB_KC_PERIOD);
+    if (!atrVal) return null;
+    const entry = close;
+    const sl = dir==='bull' ? entry - atrVal*VSB_SL_ATR_MULT : entry + atrVal*VSB_SL_ATR_MULT;
+    const risk = Math.abs(entry-sl);
+    if (risk <= 0) return null;
+    const squeezeRange = squeezeHigh - squeezeLow;
+    const tp1 = dir==='bull' ? entry + squeezeRange*VSB_TARGET_MULT1 : entry - squeezeRange*VSB_TARGET_MULT1;
+    const tp2 = dir==='bull' ? entry + squeezeRange*VSB_TARGET_MULT2 : entry - squeezeRange*VSB_TARGET_MULT2;
+    const rr1 = Math.abs(tp1-entry)/risk, rr2 = Math.abs(tp2-entry)/risk;
+    const d = decimalsFor(curSym);
+    return validateTicket({
+      dir, label:'VolSqueeze', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+      key: `volsqueeze|${curSym}|${curTf}|${dir}|${c[i].epoch}`
+    });
+  }
+
+  function readLog(){ try{ return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }catch(_){ return []; } }
+  function writeLog(arr){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(arr.slice(0,50))); }catch(_){} }
+  function renderLog(){
+    const body = $('logbody');
+    const log = readLog();
+    if (!log.length){ body.innerHTML = '<div class="logempty">Nothing disclosed yet this browser/device.</div>'; return; }
+    body.innerHTML = log.map(e => {
+      const outcomeHtml = e.outcome
+        ? `<span class="outcome-tag outcome-${e.outcome.result}">${e.outcome.result.toUpperCase()} ${e.outcome.amount>=0?'+':''}$${e.outcome.amount.toFixed(2)}</span>`
+        : `<button class="outcome-btn" onclick="logOutcome(${e.id})">Log outcome</button>`;
+      return `
+      <div class="logrow">
+        <span class="lsym">${e.sym} · ${e.tf} · ${e.bias}</span>
+        <span>E ${e.entry} / SL ${e.sl} / TP1 ${e.tp1} / TP2 ${e.tp2}</span>
+        <span>${e.time}</span>
+        <span>${outcomeHtml}</span>
+      </div>`;
+    }).join('');
+  }
+  function logOutcome(entryId){
+    const log = readLog();
+    const entry = log.find(e => e.id === entryId);
+    if (!entry) return;
+    const resultRaw = prompt('Outcome — type win, loss, or be (breakeven):', 'win');
+    if (resultRaw === null) return;
+    const result = resultRaw.toLowerCase().startsWith('l') ? 'loss' : resultRaw.toLowerCase().startsWith('b') ? 'be' : 'win';
+    const amtStr = prompt('Actual $ P&L (negative number for a loss):', result==='loss' ? '-10' : result==='be' ? '0' : '20');
+    if (amtStr === null) return;
+    const amount = Number(amtStr) || 0;
+    entry.outcome = { result, amount, loggedAt: new Date().toISOString() };
+    writeLog(log);
+    renderLog();
+    renderLossTracker();
+  }
+  window.logOutcome = logOutcome;
+
+  function computeLossTotals(){
+    const log = readLog();
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0,10);
+    const weekAgo = new Date(now.getTime() - 7*24*3600*1000);
+    let todayTotal = 0, weekTotal = 0;
+    for (const e of log){
+      if (!e.outcome) continue;
+      const loggedAt = new Date(e.outcome.loggedAt);
+      if (loggedAt.toISOString().slice(0,10) === todayStr) todayTotal += e.outcome.amount;
+      if (loggedAt >= weekAgo) weekTotal += e.outcome.amount;
+    }
+    return {todayTotal, weekTotal};
+  }
+  function renderLossTracker(){
+    const el = $('losstracker');
+    if (!el) return;
+    const {todayTotal, weekTotal} = computeLossTotals();
+    const dayCap = 20, weekCap = 50;
+    const dayOver = todayTotal < -dayCap, weekOver = weekTotal < -weekCap;
+    el.innerHTML = `
+      <div class="lt-row ${dayOver?'lt-over':''}"><span>Today</span><span>${todayTotal>=0?'+':''}$${todayTotal.toFixed(2)} <span class="lt-cap">/ −$${dayCap} limit</span></span></div>
+      <div class="lt-row ${weekOver?'lt-over':''}"><span>This week</span><span>${weekTotal>=0?'+':''}$${weekTotal.toFixed(2)} <span class="lt-cap">/ −$${weekCap} limit</span></span></div>
+      ${(dayOver||weekOver) ? '<div class="lt-warning">⚠ Logged losses have crossed your own limit — per your framework, stop trading for the period.</div>' : ''}
+    `;
+  }
+  $('clearlog').addEventListener('click', () => { writeLog([]); renderLog(); renderLossTracker(); });
+  renderLog();
+  renderLossTracker();
+
+  const STRATEGY_VALIDATION = {
+    fvg:     {label:'Mixed, thin data', detail:'XAU/USD promising (20ep, +0.29R) but EUR/GBP inconsistent — not enough to trust yet', cls:'val-thin'},
+    volsqueeze: {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'},
+    meanrev: {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'},
+    trend:   {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'}
+  };
+
+  function strategyLabel(){
+    if (curStrategy==='fvg') return 'FVG Confluence';
+    if (curStrategy==='volsqueeze') return 'Vol Squeeze Breakout';
+    if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
+    return 'Trend Following (Donchian)';
+  }
+  function effectiveTfLabel(){
+    if (curStrategy==='trend') return 'H1/H4 (fixed)';
+    return TF_LABELS[curTf];
+  }
+
+  function disclosureText(t){
+    const tfLabel = effectiveTfLabel();
+    const now = new Date().toISOString().replace('T',' ').slice(0,19)+' UTC';
+    const stratLabel = strategyLabel();
+    const v = STRATEGY_VALIDATION[curStrategy];
+    return `Rule 11 Disclosure — ${$('symlabel').textContent} · ${tfLabel} · ${stratLabel}\n`+
+      `Validation: ${v.label} (${v.detail})\n`+
+      `Bias: ${t.dir==='bull'?'Bullish':'Bearish'} ${t.label}\n`+
+      `Entry: ${t.entry.toFixed(t.decimals)}\n`+
+      `SL: ${t.sl.toFixed(t.decimals)}\n`+
+      `TP1 (close 50%): ${t.tp1.toFixed(t.decimals)}\n`+
+      `TP2 (SL→BE): ${t.tp2.toFixed(t.decimals)}\n`+
+      `R:R  ${t.rr1.toFixed(2)} / ${t.rr2.toFixed(2)}\n`+
+      `Time: ${now}`;
+  }
+
+  // ---------- lot size (forex/metals only — synthetics don't use the same convention) ----------
+  let riskAmountInput = 10;
+  function estimatePipValue(sym){
+    if (sym === 'frxXAUUSD') return {pipSize:0.01, valuePerLot:1,  note:'≈$1 per 0.01 move per standard lot — verify with your broker, gold contract specs vary.'};
+    if (sym === 'frxXAGUSD') return {pipSize:0.001, valuePerLot:5, note:'approximate — silver contract specs vary by broker, verify before sizing.'};
+    if (sym.startsWith('frx')){
+      const jpyQuoted = sym.endsWith('JPY');
+      const pipSize = jpyQuoted ? 0.01 : 0.0001;
+      return {pipSize, valuePerLot:10, note:'≈$10/pip per standard lot (USD-quoted approximation) — verify with your broker for the exact pair.'};
+    }
+    return null;
+  }
+  function computeLotSize(t, sym, riskDollars){
+    const pv = estimatePipValue(sym);
+    if (!pv) return null;
+    const pips = Math.abs(t.entry - t.sl) / pv.pipSize;
+    if (pips <= 0) return null;
+    const rawLots = riskDollars / (pips * pv.valuePerLot);
+    const lots = Math.floor(rawLots * 100) / 100; // round down — never exceed the risk cap
+    const actualRisk = lots * pips * pv.valuePerLot;
+    return {lots, pips, actualRisk, note: pv.note};
+  }
+
+  function renderTicket(t){
+    const slot = $('ticketslot');
+    if (!t){
+      const msg = curStrategy==='fvg'
+        ? 'Reading structure — no BOS/CHoCH + unmitigated FVG confluence yet on this timeframe.'
+        : curStrategy==='volsqueeze'
+        ? 'Reading volatility — watching for Bollinger Bands to compress inside the Keltner Channel (a squeeze), then release with a break of the squeeze range. No setup currently in play.'
+        : curStrategy==='meanrev'
+        ? (lastMRDiagnostic
+            ? `RSI(2)=${lastMRDiagnostic.rsi}, band touch: ${lastMRDiagnostic.touchedBand?'yes':'no'}. Regime: ${lastMRDiagnostic.regime}. No entry while either condition fails.`
+            : 'Reading structure — watching for a Bollinger Band extreme + RSI(2) extreme, gated by the H4 regime filter.')
+        : 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 momentum filter. No setup currently in play.';
+      slot.innerHTML = `<div class="idle-ticket">${msg}</div>`;
+      return;
+    }
+    const d = t.decimals;
+    const bias = t.dir === 'bull' ? 'Bullish' : 'Bearish';
+    const isDisclosed = disclosedKey === t.key;
+    slot.innerHTML = `
+      <div class="ticket ${t.dir==='bear'?'bear':''}">
+        <div class="ticket-head">
+          <div>
+            <div class="ticket-title">Setup Ticket</div>
+            <div class="ticket-tf">${$('symlabel').textContent} · ${effectiveTfLabel()} · ${strategyLabel()}</div>
+            <div class="ticket-tf" style="color:${STRATEGY_VALIDATION[curStrategy].cls==='val-good'?'#245c3f':'#7a2020'};font-weight:600">${STRATEGY_VALIDATION[curStrategy].label} — ${STRATEGY_VALIDATION[curStrategy].detail}</div>
+          </div>
+          <div class="ticket-bias ${t.dir}">${bias} · ${t.label}</div>
+        </div>
+        <div class="ticket-grid">
+          <div class="tfield"><div class="k">Entry</div><div class="v">${t.entry.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">Stop Loss</div><div class="v">${t.sl.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">TP1 (close 50%)</div><div class="v">${t.tp1.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">TP2 (SL→BE)</div><div class="v">${t.tp2.toFixed(d)}</div></div>
+        </div>
+        <div class="ticket-rr">R:R to TP1 ≈ ${t.rr1.toFixed(2)}   ·   R:R to TP2 ≈ ${t.rr2.toFixed(2)}</div>
+        <div class="lotcalc">
+          <div class="lotcalc-row">
+            <label for="riskInput">Risk $</label>
+            <input type="number" id="riskInput" value="${riskAmountInput}" min="1" step="1">
+            <span id="lotResult"></span>
+          </div>
+        </div>
+        <div class="ticket-actions">
+          <button class="tbtn" id="copyBtn">Copy disclosure</button>
+          <button class="tbtn ${isDisclosed?'done':''}" id="discloseBtn" ${isDisclosed?'disabled':''}>${isDisclosed?'Disclosed ✓':'Mark disclosed'}</button>
+        </div>
+        <div class="ticket-note">Computed from structure, not placed anywhere. Copy the disclosure, paste it to your analysis partner, then execute manually if you choose to — that's what marks it disclosed.</div>
+        <div class="stamp ${isDisclosed?'confirmed':''}">${isDisclosed?'Disclosed':'Unconfirmed'}</div>
+      </div>`;
+
+    function updateLotResult(){
+      const risk = Number($('riskInput').value) || 0;
+      riskAmountInput = risk;
+      const lot = computeLotSize(t, curSym, risk);
+      const el = $('lotResult');
+      if (!lot){
+        el.innerHTML = `<span class="lot-note">Lot sizing shown for forex/metals only — synthetics don't use the standard-lot convention. Size stakes directly: $ risk ÷ SL distance.</span>`;
+      } else {
+        el.innerHTML = `<b>${lot.lots.toFixed(2)} lots</b> · SL = ${lot.pips.toFixed(1)} pips · actual risk ≈ $${lot.actualRisk.toFixed(2)}<br><span class="lot-note">${lot.note}</span>`;
+      }
+    }
+    $('riskInput').addEventListener('input', () => { updateLotResult(); savePrefs(); });
+    updateLotResult();
+
+    $('copyBtn').addEventListener('click', () => {
+      const text = disclosureText(t);
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = $('copyBtn'); const old = btn.textContent;
+        btn.textContent = 'Copied ✓'; setTimeout(()=>{ if(btn) btn.textContent = old; }, 1500);
+      }).catch(()=>{});
+    });
+    if (!isDisclosed){
+      $('discloseBtn').addEventListener('click', () => {
+        disclosedKey = t.key;
+        const now = new Date();
+        const log = readLog();
+        log.unshift({
+          id: now.getTime(),
+          sym: $('symlabel').textContent, tf: effectiveTfLabel(), bias: bias+' '+t.label+' ('+strategyLabel()+')',
+          entry: t.entry.toFixed(d), sl: t.sl.toFixed(d), tp1: t.tp1.toFixed(d), tp2: t.tp2.toFixed(d),
+          time: now.toISOString().replace('T',' ').slice(0,19)+' UTC',
+          outcome: null
+        });
+        writeLog(log); renderLog(); renderLossTracker();
+        renderTicket(t);
+      });
+    }
+  }
+
+  function renderChart(c, swings, structure, fvgs){
+    const canvas = $('chart');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = 360;
+    canvas.width = W*dpr; canvas.height = H*dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    if (!c.length) return;
+    const visible = c.slice(-100);
+    const offset = c.length - visible.length;
+    const hi = Math.max(...visible.map(x=>x.high)), lo = Math.min(...visible.map(x=>x.low));
+    const pad = (hi-lo)*0.08 || hi*0.001;
+    const yMax = hi+pad, yMin = lo-pad;
+    const xw = W/visible.length;
+    const y = p => H - ( (p-yMin)/(yMax-yMin) )*H;
+    const x = i => i*xw + xw/2;
+
+    if (curStrategy === 'fvg'){
+      for (const g of fvgs){
+        const gs = g.start-offset, ge = g.end-offset;
+        if (ge < 0 || gs > visible.length) continue;
+        const xs = Math.max(0,gs)*xw, xe = Math.min(visible.length,ge+1)*xw;
+        ctx.fillStyle = g.direction==='bull' ? 'rgba(199,226,247,0.14)' : 'rgba(90,100,114,0.14)';
+        ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top));
+        if (g.mitigated){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top)); }
+      }
+    }
+
+    for (let i=0;i<visible.length;i++){
+      const cd = visible[i];
+      const cx = x(i);
+      const up = cd.close >= cd.open;
+      ctx.strokeStyle = up ? '#c7e2f7' : '#5a6472';
+      ctx.fillStyle = up ? '#c7e2f7' : '#5a6472';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, y(cd.high)); ctx.lineTo(cx, y(cd.low)); ctx.stroke();
+      const bw = Math.max(2, xw*0.55);
+      const bt = y(Math.max(cd.open,cd.close)), bb = y(Math.min(cd.open,cd.close));
+      ctx.fillRect(cx-bw/2, bt, bw, Math.max(1,bb-bt));
+    }
+
+    ctx.font = '9px JetBrains Mono, monospace';
+    for (const s of swings){
+      const i = s.index - offset;
+      if (i<0 || i>=visible.length) continue;
+      ctx.fillStyle = s.type==='high' ? '#c7e2f7' : '#5a6472';
+      ctx.beginPath(); ctx.arc(x(i), y(s.price), 2.2, 0, Math.PI*2); ctx.fill();
+    }
+
+    for (const ev of structure.events){
+      const i = ev.index - offset;
+      if (i<0 || i>=visible.length) continue;
+      ctx.strokeStyle = ev.direction==='bull' ? '#c7e2f7' : '#5a6472';
+      ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(0, y(ev.price)); ctx.lineTo(W, y(ev.price)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = ev.type==='CHoCH' ? '#b5484d' : (ev.direction==='bull'?'#c7e2f7':'#5a6472');
+      ctx.fillText(ev.type, Math.min(x(i)+4, W-32), y(ev.price)-4);
+    }
+  }
+
+  function renderAMDStrip(c, amd){
+    const canvas = $('amdstrip');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = 34;
+    canvas.width = W*dpr; canvas.height = H*dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    if (!c.length) return;
+    const visible = c.slice(-100);
+    const offset = c.length - visible.length;
+    const colors = {accumulation:'#5a6472', manipulation:'#b5484d', distribution:'#3f8f6f'};
+    for (const b of amd){
+      const s = b.start-offset, e = b.end-offset;
+      if (e<0 || s>visible.length) continue;
+      const xs = Math.max(0,s)/visible.length*W, xe = Math.min(visible.length,e+1)/visible.length*W;
+      ctx.fillStyle = colors[b.phase];
+      ctx.fillRect(xs, 6, xe-xs-1, H-12);
+    }
+  }
+
+  function renderStrategyStrip(candles, swings, structure, fvgs){
+    const strip = $('strategystrip');
+    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs);
+    const vsbTicket = buildVolSqueezeTicket(candles);
+    const mrTicket = buildMeanReversionTicket(candles, candlesByTf[14400]);
+    const trendTicket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+
+    const cells = [
+      {key:'fvg', label:'FVG Confluence', ticket:fvgTicket},
+      {key:'volsqueeze', label:'Vol Squeeze Breakout', ticket:vsbTicket},
+      {key:'meanrev', label:'Mean Reversion', ticket:mrTicket},
+      {key:'trend', label:'Trend Following', ticket:trendTicket}
+    ];
+    strip.innerHTML = cells.map(cell => {
+      let biasLabel = 'idle', biasClass = 'neutral';
+      if (cell.ticket){ biasLabel = (cell.ticket.dir==='bull'?'Bullish':'Bearish')+' · '+cell.ticket.label; biasClass = cell.ticket.dir==='bull'?'bull':'bear'; }
+      else if (cell.key==='meanrev' && lastMRDiagnostic && lastMRDiagnostic.touchedBand){ biasLabel = 'blocked'; biasClass='neutral'; }
+      const v = STRATEGY_VALIDATION[cell.key];
+      return `<div class="mtf-cell ${curStrategy===cell.key?'active':''}" data-strat="${cell.key}" style="cursor:pointer">
+        <div class="tf">${cell.label}</div>
+        <div class="bias ${biasClass}">${biasLabel}</div>
+        <div class="val-badge ${v.cls}">${v.label}</div>
+      </div>`;
+    }).join('');
+    strip.querySelectorAll('.mtf-cell').forEach(cell => {
+      cell.addEventListener('click', () => setStrategy(cell.dataset.strat));
+    });
+  }
+
+  function renderMTFStrip(){
+    const strip = $('mtfstrip');
+    strip.innerHTML = TFS.map(tf => {
+      const c = candlesByTf[tf];
+      let biasLabel = '—', biasClass = 'neutral';
+      if (c && c.length > 6){
+        const swings = computeSwings(c);
+        const structure = computeStructureEvents(c, swings);
+        if (structure.trend === 'bull'){ biasLabel='Bullish'; biasClass='bull'; }
+        else if (structure.trend === 'bear'){ biasLabel='Bearish'; biasClass='bear'; }
+      }
+      return `<div class="mtf-cell ${tf===curTf?'active':''}" data-tf="${tf}">
+        <div class="tf">${TF_LABELS[tf]}</div>
+        <div class="bias ${biasClass}">${biasLabel}</div>
+      </div>`;
+    }).join('');
+    strip.querySelectorAll('.mtf-cell').forEach(cell => {
+      cell.addEventListener('click', () => { curTf = Number(cell.dataset.tf); savePrefs(); renderAll(); });
+    });
+  }
+
+  function updateHealthDisplay(){
+    const dot = $('healthdot'), txt = $('healthtxt');
+    if (!lastUpdateTime){ txt.textContent = 'no data yet'; dot.className = 'dot'; return; }
+    const secs = Math.round((Date.now() - lastUpdateTime) / 1000);
+    txt.textContent = secs < 60 ? `updated ${secs}s ago` : `updated ${Math.floor(secs/60)}m ago`;
+    dot.className = 'dot ' + (secs < 15 ? 'live' : secs < 45 ? 'warn' : ''); // green / amber / grey(stale)
+  }
+
+  function updateSession(){
+    const h = new Date().getUTCHours();
+    let label;
+    const inAsia = h>=0 && h<8, inLondon = h>=7 && h<16, inNY = h>=12 && h<21;
+    if (inLondon && inNY) label='London/NY overlap';
+    else if (inLondon) label='London session';
+    else if (inNY) label='New York session';
+    else if (inAsia) label='Asia session';
+    else label='off-session';
+    $('sesstxt').textContent = label;
+    $('sessdot').classList.toggle('live', inAsia||inLondon||inNY);
+
+    const h4 = candlesByTf[14400];
+    if (h4 && h4.length > TREND_LOOKBACK){
+      const dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
+      if (dir4 === 1){ $('trendtxt').textContent = 'Trend Filter: Bullish (H4)'; $('trenddot').classList.add('live'); }
+      else if (dir4 === -1){ $('trendtxt').textContent = 'Trend Filter: Bearish (H4)'; $('trenddot').classList.add('live'); }
+      else { $('trendtxt').textContent = 'Trend Filter: flat/no clear trend'; $('trenddot').classList.remove('live'); }
+    } else {
+      $('trendtxt').textContent = 'Trend Filter: — (waiting on H4 history)';
+      $('trenddot').classList.remove('live');
+    }
+  }
+
+  // ---------- notification watcher (any strategy, any selected timeframes) ----------
+  let notifyEnabled = false;
+  let notifiedKeys = {}; // per-timeframe (or 'single' for trend) last-notified ticket key
+
+  function updateNotifyButton(){
+    const btn = $('btnNotify');
+    if (!('Notification' in window)){ btn.textContent = '🔔 Notify: unsupported'; btn.disabled = true; return; }
+    if (Notification.permission === 'denied'){ btn.textContent = '🔔 Notify: blocked'; notifyEnabled = false; return; }
+    btn.textContent = notifyEnabled ? '🔔 Notify: on' : '🔔 Notify: off';
+  }
+
+  $('btnNotify').addEventListener('click', () => {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'denied'){ updateNotifyButton(); return; }
+    if (notifyEnabled){ notifyEnabled = false; updateNotifyButton(); return; }
+    Notification.requestPermission().then(perm => {
+      notifyEnabled = (perm === 'granted');
+      updateNotifyButton();
+      if (notifyEnabled) checkHTFNotifications();
+    });
+  });
+
+  function updateNotifyTfVisibility(){
+    const strat = $('notifyStrategy').value;
+    $('notifyTfRow').style.display = (strat==='trend') ? 'none' : 'flex';
+  }
+  $('notifyStrategy').addEventListener('change', () => { notifiedKeys = {}; updateNotifyTfVisibility(); });
+  updateNotifyTfVisibility();
+
+  function buildTicketForNotify(strat, tf){
+    if (strat === 'trend') return buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    const c = candlesByTf[tf];
+    if (!c || c.length < 20) return null;
+    if (strat === 'meanrev') return buildMeanReversionTicket(c, candlesByTf[14400]);
+    if (strat === 'volsqueeze') return buildVolSqueezeTicket(c);
+    const swings = computeSwings(c);
+    const structure = computeStructureEvents(c, swings);
+    const fvgs = computeFVGs(c);
+    const savedTf = curTf; // buildFVGTicket keys off module-level curTf
+    curTf = tf;
+    const ticket = buildFVGTicket(c, swings, structure, fvgs);
+    curTf = savedTf;
+    return ticket;
+  }
+
+  function fireNotification(strat, tf, ticket){
+    const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
+    const stratLbl = strat==='fvg'?'FVG Confluence':strat==='volsqueeze'?'Vol Squeeze Breakout':strat==='meanrev'?'Mean Reversion':'Trend Following';
+    const tfLbl = tf ? TF_LABELS[tf] : 'H1/H4';
+    const n = new Notification(`${stratLbl} — ${tfLbl} — ${bias}`, {
+      body: `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`,
+      tag: `notify-${curSym}-${strat}-${tf||'x'}`
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  }
+
+  function checkHTFNotifications(){
+    if (!notifyEnabled || Notification.permission !== 'granted') return;
+    const strat = $('notifyStrategy').value;
+    if (strat === 'trend'){
+      const ticket = buildTicketForNotify(strat, null);
+      if (!ticket) return;
+      if (notifiedKeys.single === ticket.key) return;
+      notifiedKeys.single = ticket.key;
+      fireNotification(strat, null, ticket);
+      return;
+    }
+    for (const tf of TFS){
+      const cb = $('notifyTf'+tf);
+      if (!cb || !cb.checked) continue;
+      const ticket = buildTicketForNotify(strat, tf);
+      if (!ticket) continue;
+      if (notifiedKeys[tf] === ticket.key) continue;
+      notifiedKeys[tf] = ticket.key;
+      fireNotification(strat, tf, ticket);
+    }
+  }
+
+  function renderAll(){
+    checkHTFNotifications();
+    const candles = candlesByTf[curTf];
+    renderMTFStrip();
+    if (!candles || !candles.length) return;
+    const swings = computeSwings(candles);
+    const structure = computeStructureEvents(candles, swings);
+    const fvgs = computeFVGs(candles);
+    const amd = computeAMD(candles);
+    renderStrategyStrip(candles, swings, structure, fvgs);
+    const ticket = curStrategy==='fvg' ? buildFVGTicket(candles, swings, structure, fvgs)
+                                        : curStrategy==='volsqueeze' ? buildVolSqueezeTicket(candles)
+                                        : curStrategy==='meanrev' ? buildMeanReversionTicket(candles, candlesByTf[14400])
+                                        : buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+
+    renderChart(candles, swings, structure, fvgs);
+    renderAMDStrip(candles, amd);
+    renderTicket(ticket);
+
+    const last = candles[candles.length-1];
+    const prev = candles[candles.length-2] || last;
+    const d = decimalsFor(curSym);
+    const q = $('quote');
+    q.textContent = last.close.toFixed(d);
+    q.className = 'quote ' + (last.close>=prev.close ? 'up':'down');
+    $('symlabel').textContent = $('symbol').selectedOptions[0].text;
+  }
+
+  // ---------- backtest engine ----------
+  let spreadCostR = 0.05; // flat per-trade haircut, in R, applied in simulateTrade — backtests otherwise assume a perfect fill
+  // FILL-GATE: t.entry is a resting order (a pullback level), not a market fill.
+  // A ticket only becomes a real trade once price actually trades through entry.
+  // Until then it's just a signal — if price runs straight to what would have
+  // been TP without ever coming back for entry, that is NOT a win, it's an
+  // order that was never filled and never existed as a live position.
+  // If entry and SL are touched within the same bar, SL is assumed to have
+  // been hit (conservative — matches the same-candle tie-break already used
+  // elsewhere for TP1 vs TP2).
+  function simulateTrade(hist, startIdx, t){
+    let j = startIdx, filled = false;
+    for (; j<hist.length; j++){
+      const c = hist[j];
+      if (t.dir==='bull' ? (c.low <= t.entry) : (c.high >= t.entry)){ filled = true; break; }
+    }
+    if (!filled) return {result:'never filled', R:0, exitIndex:hist.length-1};
+
+    let hitTP1 = false;
+    for (; j<hist.length; j++){
+      const c = hist[j];
+      if (t.dir==='bull'){
+        if (!hitTP1){
+          if (c.low <= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp1){ hitTP1 = true; continue; }
+        } else {
+          if (c.low <= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      } else {
+        if (!hitTP1){
+          if (c.high >= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp1){ hitTP1 = true; continue; }
+        } else {
+          if (c.high >= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      }
+    }
+    return {result:'open', R:0, exitIndex:hist.length-1};
+  }
+
+  let lastBacktestNeverFilled = 0;
+  function simulateBacktest(hist, strat, h4, requirePD, requireDisp){
+    const WINDOW = MAXC;
+    let lastKey = null;
+    const trades = [];
+    let neverFilled = 0;
+    let h4ptr = -1;
+    for (let i=30; i<hist.length-1; i++){
+      const windowed = hist.slice(Math.max(0, i-WINDOW+1), i+1);
+      const needsStructure = strat==='fvg';
+      const swings = needsStructure ? computeSwings(windowed) : null;
+      const structure = needsStructure ? computeStructureEvents(windowed, swings) : null;
+      const fvgs = strat==='fvg' ? computeFVGs(windowed) : null;
+      let h4Slice = null;
+      if ((strat==='fvg' || strat==='meanrev') && h4){
+        const h1Time = hist[i].epoch;
+        while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
+        h4Slice = h4ptr >= 0 ? h4.slice(Math.max(0, h4ptr-120), h4ptr+1) : null;
+      }
+      const ticket = strat==='fvg' ? buildFVGTicket(windowed, swings, structure, fvgs, h4Slice, requirePD, requireDisp)
+                                    : strat==='meanrev' ? buildMeanReversionTicket(windowed, h4Slice)
+                                    : buildVolSqueezeTicket(windowed);
+      if (!ticket) continue;
+      if (ticket.key === lastKey) continue;
+      lastKey = ticket.key;
+      const outcome = strat==='meanrev' ? simulateMeanReversionTrade(hist, i+1, ticket, MR_MAX_BARS)
+                                         : simulateTrade(hist, i+1, ticket);
+      if (outcome.result === 'never filled'){ neverFilled++; continue; }
+      trades.push(Object.assign({index:i}, ticket, outcome));
+    }
+    lastBacktestNeverFilled = neverFilled;
+    return trades;
+  }
+
+  // Trend Following walk-forward: unlike every other strategy here, this one
+  // tracks an actually OPEN position bar-by-bar (trailing stop + opposite
+  // Donchian(10) breach), since its real exit rule has no fixed target to
+  // check against. h4 must be pre-aligned to only bars that had already
+  // closed by each h1 bar's time (same no-lookahead discipline used throughout).
+  function finishTrendTrade(pos, exitPrice, exitIdx){
+    const risk = Math.abs(pos.entry - pos.origSL);
+    const pnl = pos.dir==='bull' ? (exitPrice-pos.entry) : (pos.entry-exitPrice);
+    const grossR = risk>0 ? pnl/risk : 0;
+    const isFullLoss = grossR <= -0.98; // hit the original, never-trailed stop
+    const d = decimalsFor(curSym);
+    return {
+      index: pos.entryIdx, dir: pos.dir, label:'Trend',
+      entry: pos.entry, sl: pos.origSL, tp1: exitPrice, tp2: exitPrice,
+      rr1: isFullLoss?0:grossR, rr2: isFullLoss?0:grossR,
+      decimals: d,
+      result: isFullLoss ? 'SL' : 'TP1+TP2',
+      R: grossR - spreadCostR
+    };
+  }
+  function simulateTrendBacktest(h1, h4){
+    const trades = [];
+    let h4ptr = -1, openPos = null;
+    const minIdx = Math.max(ENTRY_PERIOD+2, ATR_PERIOD+2);
+    for (let i = minIdx; i < h1.length; i++){
+      const h1Time = h1[i].epoch;
+      while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
+      const bar = h1[i];
+
+      if (openPos){
+        const exitCh = donchianChannel(h1, i-1, EXIT_PERIOD);
+        const atrVal = computeATR(h1, i-1, ATR_PERIOD);
+        if (openPos.dir==='bull'){
+          if (exitCh && bar.low < exitCh.lo){ trades.push(finishTrendTrade(openPos, exitCh.lo, i)); openPos = null; continue; }
+          if (bar.low <= openPos.sl){ trades.push(finishTrendTrade(openPos, openPos.sl, i)); openPos = null; continue; }
+          if (atrVal){ const newSL = bar.close - atrVal*ATR_TRAIL_MULT; if (newSL > openPos.sl) openPos.sl = newSL; }
+        } else {
+          if (exitCh && bar.high > exitCh.hi){ trades.push(finishTrendTrade(openPos, exitCh.hi, i)); openPos = null; continue; }
+          if (bar.high >= openPos.sl){ trades.push(finishTrendTrade(openPos, openPos.sl, i)); openPos = null; continue; }
+          if (atrVal){ const newSL = bar.close + atrVal*ATR_TRAIL_MULT; if (newSL < openPos.sl) openPos.sl = newSL; }
+        }
+        continue; // in a position — don't also evaluate a new entry same bar
+      }
+
+      if (h4ptr < TREND_LOOKBACK) continue;
+      const dir4 = trendDirectionTF(h4, h4ptr, TREND_LOOKBACK);
+      if (dir4 === 0) continue;
+      const atrVal = computeATR(h1, i-1, ATR_PERIOD);
+      const channel = donchianChannel(h1, i-1, ENTRY_PERIOD);
+      if (!atrVal || !channel) continue;
+      const price = bar.close;
+      let dir = null;
+      if (dir4===1 && price > channel.hi) dir='bull';
+      else if (dir4===-1 && price < channel.lo) dir='bear';
+      if (!dir) continue;
+      const entry = price;
+      const sl = dir==='bull' ? entry - atrVal*ATR_SL_MULT : entry + atrVal*ATR_SL_MULT;
+      openPos = { dir, entry, sl, origSL: sl, entryIdx: i };
+    }
+    if (openPos) trades.push(Object.assign(finishTrendTrade(openPos, h1[h1.length-1].close, h1.length-1), {result:'open', R:0}));
+    return trades;
+  }
+
+  function fmtDate(epoch){
+    const dt = new Date(epoch*1000);
+    return dt.toISOString().slice(0,10);
+  }
+
+  function renderBacktestError(msg){
+    $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Backtest fetch failed: ${msg}</div></div>`;
+  }
+
+  let lastBacktestTrades = [], lastBacktestMeta = null;
+
+  function downloadBacktestCSV(){
+    if (!lastBacktestTrades.length){ return; }
+    const meta = lastBacktestMeta;
+    const symLabel = $('symbol').selectedOptions[0].text;
+    const stratLabel = meta.strat==='fvg' ? 'FVG_Confluence' : meta.strat==='volsqueeze' ? 'Vol_Squeeze_Breakout' : meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2' : 'Trend_Following_Donchian';
+    const tfPart = meta.strat==='trend' ? 'H1H4aligned' : TF_LABELS[meta.tf];
+    const header = ['bar_index','date','direction','label','entry','sl','tp1','tp2','rr1','rr2','result','R'];
+    const rows = lastBacktestTrades.map(t => [
+      t.index, fmtDate(t.epoch||0), t.dir, t.label, t.entry.toFixed(t.decimals), t.sl.toFixed(t.decimals),
+      t.tp1.toFixed(t.decimals), t.tp2.toFixed(t.decimals), t.rr1.toFixed(2), t.rr2.toFixed(2), t.result, t.R.toFixed(3)
+    ]);
+    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backtest_${symLabel.replace(/[^A-Za-z0-9]/g,'')}_${tfPart}_${stratLabel}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function collapseEpisodes(closedTrades, gapBars){
+    if (!closedTrades.length) return [];
+    const sorted = [...closedTrades].sort((a,b) => a.index - b.index);
+    const episodes = [];
+    let current = [sorted[0]];
+    for (let i=1; i<sorted.length; i++){
+      if (sorted[i].index - current[current.length-1].index <= gapBars) current.push(sorted[i]);
+      else { episodes.push(current); current = [sorted[i]]; }
+    }
+    episodes.push(current);
+    return episodes.map(ep => ep[0]);
+  }
+  function cappedTradeR(t, cap){
+    const rr1c = Math.min(t.rr1, cap), rr2c = Math.min(t.rr2, cap);
+    if (t.result === 'SL') return -1 - spreadCostR;
+    if (t.result === 'TP1+BE') return 0.5*rr1c - spreadCostR;
+    if (t.result === 'TP1+TP2') return 0.5*rr1c + 0.5*rr2c - spreadCostR;
+    return 0;
+  }
+  function computeAdvancedMetrics(trades){
+    const closed = trades.filter(t => t.result !== 'open');
+    const n = closed.length;
+    if (!n) return null;
+    const rawWins = closed.filter(t=>t.R>0), rawLosses = closed.filter(t=>t.R<=0);
+    const rawTotal = closed.reduce((s,t)=>s+t.R,0);
+    const grossWin = rawWins.reduce((s,t)=>s+t.R,0);
+    const grossLoss = Math.abs(rawLosses.reduce((s,t)=>s+t.R,0));
+    const profitFactor = grossLoss>0 ? grossWin/grossLoss : (grossWin>0 ? Infinity : 0);
+
+    const chrono = [...closed].sort((a,b)=>a.index-b.index);
+    let peak=0, cum=0, maxDD=0;
+    for (const t of chrono){ cum+=t.R; if (cum>peak) peak=cum; const dd=peak-cum; if (dd>maxDD) maxDD=dd; }
+
+    const CAP = 3.0;
+    const episodes = collapseEpisodes(closed, 10);
+    const ne = episodes.length;
+    const episodeCapped = episodes.map(t=>cappedTradeR(t,CAP));
+    const episodeTotal = episodeCapped.reduce((s,v)=>s+v,0);
+    const episodeAvg = ne ? episodeTotal/ne : 0;
+    const episodeWinRate = ne ? episodeCapped.filter(v=>v>0).length/ne*100 : 0;
+
+    const mid = Math.floor(ne/2);
+    const fh = episodeCapped.slice(0,mid), sh = episodeCapped.slice(mid);
+    const fhAvg = fh.length ? fh.reduce((s,v)=>s+v,0)/fh.length : 0;
+    const shAvg = sh.length ? sh.reduce((s,v)=>s+v,0)/sh.length : 0;
+    const fhWin = fh.length ? fh.filter(v=>v>0).length/fh.length*100 : 0;
+    const shWin = sh.length ? sh.filter(v=>v>0).length/sh.length*100 : 0;
+
+    return {
+      n, rawWinRate: rawWins.length/n*100, rawAvg: rawTotal/n, rawTotal, profitFactor, maxDD,
+      ne, episodeWinRate, episodeAvg, episodeTotal,
+      fhAvg, shAvg, fhWin, shWin, fhN: fh.length, shN: sh.length
+    };
+  }
+  function backtestVerdict(m){
+    if (m.ne < 15) return {text:`Far too few independent episodes (${m.ne}) to judge — need 100+`, cls:'val-thin'};
+    if (m.episodeAvg <= 0) return {text:'Negative after correction — no edge shown', cls:'val-thin'};
+    const consistent = (m.fhAvg > 0) === (m.shAvg > 0);
+    if (!consistent) return {text:'Positive overall but flips sign between halves — inconsistent, treat with caution', cls:'val-thin'};
+    if (m.ne < 100) return {text:`Positive and consistent, but sample still thin (${m.ne} episodes, want 100+)`, cls:'val-thin'};
+    return {text:'Positive, survives outlier-capping, consistent split-half — meets the bar for real evidence', cls:'val-good'};
+  }
+
+  function renderBacktestResults(trades, hist, meta){
+    lastBacktestTrades = trades.map(t => Object.assign({}, t, {epoch: hist[t.index] ? hist[t.index].epoch : 0}));
+    lastBacktestMeta = meta;
+    const closed = trades.filter(t => t.result !== 'open');
+    const n = closed.length;
+    const wins = closed.filter(t => t.R > 0).length;
+    const fullLosses = closed.filter(t => t.result==='SL').length;
+    const tp1tp2 = closed.filter(t => t.result==='TP1+TP2').length;
+    const tp1be = closed.filter(t => t.result==='TP1+BE').length;
+    const totalR = closed.reduce((s,t)=>s+t.R, 0);
+    const avgR = n ? totalR/n : 0;
+    const winRate = n ? wins/n*100 : 0;
+
+    const symLabel = $('symbol').selectedOptions[0].text;
+    const stratLabel = meta.strat==='fvg' ? 'FVG Confluence' : meta.strat==='volsqueeze' ? 'Vol Squeeze Breakout' : meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)' : 'Trend Following (Donchian)';
+    const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : TF_LABELS[meta.tf];
+    const dateRange = hist.length ? `${fmtDate(hist[0].epoch)} → ${fmtDate(hist[hist.length-1].epoch)}` : '';
+
+    // equity curve
+    let cum = 0;
+    const curve = closed.map(t => (cum += t.R));
+    const m = computeAdvancedMetrics(trades);
+    const verdict = m ? backtestVerdict(m) : {text:'No closed trades to assess', cls:'val-thin'};
+
+    const slot = $('backtestslot');
+    slot.innerHTML = `
+      <div class="btpanel">
+        <h3>Backtest — ${symLabel} · ${tfLabel} · ${stratLabel}${meta.htfFiltered ? ' · H4-filtered' : ''}${meta.pdFiltered ? ' · OTE-zone' : ''}${meta.dispFiltered ? ' · displacement' : ''}</h3>
+        <div class="btmeta">${hist.length} bars · ${dateRange} · walk-forward, no lookahead (same rolling ${MAXC}-bar buffer the live tool uses) · spread cost applied: ${spreadCostR.toFixed(2)}R/trade · ${lastBacktestNeverFilled} signal(s) never reached entry and were excluded (would not have been real fills)</div>
+        <div class="btverdict ${verdict.cls}">${verdict.text}</div>
+        <div class="ticket-actions" style="margin:12px 0">
+          <button class="tbtn" id="btnDownloadCsv" style="background:var(--brass);color:#0f1826">Download CSV (${trades.length} trades)</button>
+        </div>
+
+        <h3 style="font-size:12px;color:var(--faint);margin-bottom:8px">Raw (unadjusted headline numbers — inflated by overlap and outliers, don't trust these alone)</h3>
+        <div class="btgrid">
+          <div class="btcell"><div class="v">${n}</div><div class="k">signals</div></div>
+          <div class="btcell"><div class="v">${winRate.toFixed(1)}%</div><div class="k">win rate</div></div>
+          <div class="btcell"><div class="v ${avgR>=0?'pos':'neg'}">${avgR>=0?'+':''}${avgR.toFixed(2)}R</div><div class="k">avg R / trade</div></div>
+          <div class="btcell"><div class="v ${totalR>=0?'pos':'neg'}">${totalR>=0?'+':''}${totalR.toFixed(1)}R</div><div class="k">total R</div></div>
+          <div class="btcell"><div class="v">${m?(m.profitFactor===Infinity?'∞':m.profitFactor.toFixed(2)):'—'}</div><div class="k">profit factor (raw)</div></div>
+          <div class="btcell"><div class="v neg">${m?m.maxDD.toFixed(1):'—'}R</div><div class="k">max drawdown (raw)</div></div>
+          <div class="btcell"><div class="v">${tp1tp2}</div><div class="k">TP1+TP2</div></div>
+          <div class="btcell"><div class="v">${fullLosses}</div><div class="k">full SL</div></div>
+        </div>
+
+        ${m ? `
+        <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">Corrected (R:R capped at 3.0, overlapping signals collapsed to ${m.ne} independent episodes — this is the number to actually trust)</h3>
+        <div class="btgrid">
+          <div class="btcell"><div class="v">${m.ne}</div><div class="k">independent episodes</div></div>
+          <div class="btcell"><div class="v">${m.episodeWinRate.toFixed(1)}%</div><div class="k">win rate</div></div>
+          <div class="btcell"><div class="v ${m.episodeAvg>=0?'pos':'neg'}">${m.episodeAvg>=0?'+':''}${m.episodeAvg.toFixed(3)}R</div><div class="k">avg R / episode</div></div>
+          <div class="btcell"><div class="v ${m.episodeTotal>=0?'pos':'neg'}">${m.episodeTotal>=0?'+':''}${m.episodeTotal.toFixed(1)}R</div><div class="k">total R</div></div>
+        </div>
+        <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">Split-half consistency (first vs second half of independent episodes, capped)</h3>
+        <div class="btgrid">
+          <div class="btcell"><div class="v">${m.fhN}</div><div class="k">first half n</div></div>
+          <div class="btcell"><div class="v ${m.fhAvg>=0?'pos':'neg'}">${m.fhAvg>=0?'+':''}${m.fhAvg.toFixed(3)}R</div><div class="k">first half avg (${m.fhWin.toFixed(0)}% win)</div></div>
+          <div class="btcell"><div class="v">${m.shN}</div><div class="k">second half n</div></div>
+          <div class="btcell"><div class="v ${m.shAvg>=0?'pos':'neg'}">${m.shAvg>=0?'+':''}${m.shAvg.toFixed(3)}R</div><div class="k">second half avg (${m.shWin.toFixed(0)}% win)</div></div>
+        </div>` : ''}
+
+        <canvas id="btequity" style="margin-top:14px"></canvas>
+        <div class="btnote">
+          Walk-forward: at each bar only the prior ${MAXC}-bar rolling window is used to build a ticket — exactly what the live tool would have shown at that moment, no future data leaking in. "Corrected" numbers cap each trade's R:R at 3.0 (removing distortion from freak tight-stop outliers) and collapse signals within 10 bars of each other into one episode (removing double-counting of the same underlying move) — this is the same manual process applied to every backtest earlier in this project, now automatic. Same-candle TP2-vs-breakeven ties are resolved conservatively (breakeven assumed first).
+        </div>
+      </div>`;
+
+    // equity curve canvas
+    const canvas = $('btequity');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = 90;
+    canvas.width = W*dpr; canvas.height = H*dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    if (curve.length > 1){
+      const cMax = Math.max(...curve, 0), cMin = Math.min(...curve, 0);
+      const range = (cMax-cMin) || 1;
+      const y = v => H - ((v-cMin)/range)*H;
+      ctx.strokeStyle = totalR>=0 ? '#c7e2f7' : '#5a6472';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      curve.forEach((v,i) => { const px = i/(curve.length-1)*W; i===0 ? ctx.moveTo(px,y(v)) : ctx.lineTo(px,y(v)); });
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(139,147,161,0.3)'; ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(0,y(0)); ctx.lineTo(W,y(0)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    $('btnDownloadCsv').addEventListener('click', downloadBacktestCSV);
+  }
+
+  function requestHistoryPage(sym, gran, count, endParam, extra){
+    ws.send(JSON.stringify({
+      ticks_history: sym, style:'candles', granularity: gran,
+      count: count, end: endParam,
+      passthrough: Object.assign({purpose:'backtest_ea_page', sym, gran, count, end:endParam}, extra)
+    }));
+  }
+
+  function finalizePart(runId, part){
+    const bucket = pendingEABacktest[runId];
+    const pages = bucket[part+'_pages'] || [];
+    const seen = new Map();
+    for (const page of pages){ for (const c of page){ seen.set(c.epoch, c); } }
+    const merged = Array.from(seen.values()).sort((a,b) => a.epoch - b.epoch);
+    bucket[part] = merged;
+    delete bucket[part+'_pages'];
+
+    if (bucket.kind === 'trend' && bucket.h1 && bucket.h4){
+      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running trailing-stop walk-forward across ${bucket.h1.length} H1 bars…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateTrendBacktest(bucket.h1, bucket.h4);
+        renderBacktestResults(trades, bucket.h1, {purpose:'backtest_trend', sym:curSym, strat:'trend'});
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
+    if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf)){
+      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateBacktest(bucket.data, bucket.strat, bucket.htf || null, bucket.wantPD, bucket.wantDisp);
+        renderBacktestResults(trades, bucket.data, {purpose:'backtest', sym:curSym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf, pdFiltered: !!bucket.wantPD, dispFiltered: !!bucket.wantDisp});
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
+  }
+
+  $('spreadInput').addEventListener('input', e => { spreadCostR = Math.max(0, Number(e.target.value) || 0); savePrefs(); });
+
+  $('btnBacktest').addEventListener('click', () => {
+    if (!ws || ws.readyState !== 1) return;
+    if (curStrategy === 'trend'){
+      const depth = Number($('btDepth').value);
+      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4 history for ${$('symbol').selectedOptions[0].text}…</div></div>`;
+      const runId = 'trend' + Date.now();
+      pendingEABacktest[runId] = {kind:'trend', h1_pages:[], h4_pages:[]};
+      requestHistoryPage(curSym, 3600,  5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:depth});
+      requestHistoryPage(curSym, 14400, 1300, 'latest', {runId, part:'h4', pageIndex:0, pagesWanted:depth});
+      return;
+    }
+    // btDepth's labels (~7/14/20 months etc.) are calibrated assuming H1 candles.
+    // A page of 15m/5m/1m candles covers proportionally less calendar time than
+    // a page of H1 candles, so scale the number of pages requested to match the
+    // same real time span regardless of which timeframe is selected. Capped to
+    // avoid firing an excessive number of requests on 1m.
+    const rawDepth = Number($('btDepth').value);
+    const depth = Math.min(60, Math.ceil(rawDepth * (3600 / curTf)));
+    const wantHtf = (curStrategy === 'fvg' && $('htfFilter').checked) || curStrategy === 'meanrev';
+    const wantPD = curStrategy === 'fvg' && $('pdFilter').checked;
+    const wantDisp = curStrategy === 'fvg' && $('dispFilter').checked;
+    $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[curTf]} history for ${$('symbol').selectedOptions[0].text}${wantHtf?' (plus H4 for trend/regime filter)':''}…</div></div>`;
+    const runId = 'single' + Date.now();
+    pendingEABacktest[runId] = {kind:'single', strat: curStrategy, tf: curTf, wantHtf, wantPD, wantDisp, data_pages:[]};
+    requestHistoryPage(curSym, curTf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
+    if (wantHtf){
+      pendingEABacktest[runId].htf_pages = [];
+      const htfDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 14400)) || 1);
+      requestHistoryPage(curSym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
+    }
+  });
+
+  $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
+  $('btnFvg').addEventListener('click', () => { setStrategy('fvg'); });
+  $('btnVS').addEventListener('click', () => { setStrategy('volsqueeze'); });
+  $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
+  $('btnTrend').addEventListener('click', () => { setStrategy('trend'); });
+
+  function setStrategy(s){
+    curStrategy = s;
+    [['btnFvg','fvg'],['btnVS','volsqueeze'],['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    $('mrParamsRow').style.display = (s==='meanrev') ? 'block' : 'none';
+    $('btDepth').style.display = 'inline-block';
+    $('htfFilterWrap').style.display = (s==='fvg') ? 'inline-flex' : 'none';
+    $('pdFilterWrap').style.display = (s==='fvg') ? 'inline-flex' : 'none';
+    $('dispFilterWrap').style.display = (s==='fvg') ? 'inline-flex' : 'none';
+    $('backtestslot').innerHTML = '';
+    disclosedKey = null;
+    savePrefs();
+    renderAll();
+  }
+  window.addEventListener('resize', renderAll);
+
+  // Restore saved preferences before the first connect, so the tool reopens
+  // exactly where it was left rather than always resetting to defaults.
+  (function applySavedPrefs(){
+    const p = loadPrefs();
+    if (!p) return;
+    if (p.sym && $('symbol').querySelector(`option[value="${p.sym}"]`)){ $('symbol').value = p.sym; curSym = p.sym; }
+    if (typeof p.tf === 'number') curTf = p.tf;
+    if (typeof p.risk === 'number') riskAmountInput = p.risk;
+    if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
+    if (p.strategy){
+      curStrategy = p.strategy;
+      [['btnFvg','fvg'],['btnVS','volsqueeze'],['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===p.strategy));
+      $('mrParamsRow').style.display = (p.strategy==='meanrev') ? 'block' : 'none';
+      $('btDepth').style.display = 'inline-block';
+      $('htfFilterWrap').style.display = (p.strategy==='fvg') ? 'inline-flex' : 'none';
+      $('pdFilterWrap').style.display = (p.strategy==='fvg') ? 'inline-flex' : 'none';
+      $('dispFilterWrap').style.display = (p.strategy==='fvg') ? 'inline-flex' : 'none';
+    }
+  })();
+
+  updateSession();
+  setInterval(updateSession, 60000);
+  setInterval(updateHealthDisplay, 1000);
+  updateNotifyButton();
+  connect();
+})();
+</script>
+</body>
+</html>
