@@ -138,6 +138,16 @@
   .btverdict.val-good{background:rgba(63,143,111,0.15);color:var(--green-acc);border:1px solid rgba(63,143,111,0.4)}
   .btverdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc);border:1px solid rgba(181,72,77,0.35)}
 
+  .batch-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+  .batch-table th{text-align:left;color:var(--faint);font-weight:500;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em}
+  .batch-table td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--dim)}
+  .batch-table td.pos{color:var(--green-acc)} .batch-table td.neg{color:var(--red-acc)}
+  .batch-table tr.running td{color:var(--brass)}
+  .batch-verdict{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600}
+  .batch-verdict.val-good{background:rgba(63,143,111,0.18);color:var(--green-acc)}
+  .batch-verdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc)}
+  #batchSymChecks label, #batchStratChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+
   .rulepanel{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .rulepanel h3{font-family:var(--serif);font-size:13px;color:var(--dim);margin-bottom:8px;font-weight:500}
   .rulepanel p{font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7}
@@ -288,6 +298,19 @@
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
+  </div>
+
+  <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
+    <h3>Batch Scan</h3>
+    <div class="btmeta">Runs every checked strategy across every checked symbol, one combination at a time, through the exact same walk-forward engine and raw/corrected/verdict math as "Run Backtest" above — nothing here is tuned differently or cherry-picked. Depth follows the selector above; more symbols × strategies means more requests, so start small. A "0 signals" row is a real result, not an error.</div>
+    <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
+    <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
+    <div class="ticket-actions">
+      <button class="tbtn" id="btnRunBatch" style="background:var(--brass);color:#0f1826">Run Batch Scan</button>
+      <button class="tbtn" id="btnStopBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
+    </div>
+    <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
@@ -491,7 +514,7 @@
         finalizePart(runId, part);
       } else {
         const earliest = batch[0].epoch;
-        $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${part.toUpperCase()} history — page ${pageIndex+2} of ${pagesWanted}…</div></div>`;
+        if (!pendingEABacktest[runId].onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${part.toUpperCase()} history — page ${pageIndex+2} of ${pagesWanted}…</div></div>`;
         requestHistoryPage(sym, gran, count, earliest - gran, {runId, part, pageIndex:pageIndex+1, pagesWanted, requestedEnd: earliest - gran});
       }
       return;
@@ -2617,19 +2640,28 @@
     return {text:'Positive, survives outlier-capping, consistent split-half — meets the bar for real evidence', cls:'val-good'};
   }
 
+  // Shared by the interactive "Run Backtest" panel and the Batch Scan table
+  // below: the same ambiguous-exclusion rule (Part 18 — same-candle SL/TP
+  // outcomes are unknowable from OHLC alone, so they're dropped from the
+  // primary win/loss read rather than silently folded into SL) and the same
+  // raw n/win-rate/avg-R math, so neither view can quietly disagree with the
+  // other about what a "win" or a "signal" means.
+  function summarizeClosedTrades(trades, strat){
+    const allClosed = trades.filter(t => t.result !== 'open');
+    const ambiguous = strat==='meanrev' ? allClosed.filter(t => t.result==='AMBIGUOUS') : [];
+    const closed = strat==='meanrev' ? allClosed.filter(t => t.result!=='AMBIGUOUS') : allClosed;
+    const n = closed.length;
+    const wins = closed.filter(t => t.R > 0).length;
+    const totalR = closed.reduce((s,t)=>s+t.R, 0);
+    const avgR = n ? totalR/n : 0;
+    const winRate = n ? wins/n*100 : 0;
+    return {allClosed, ambiguous, closed, n, wins, totalR, avgR, winRate};
+  }
+
   function renderBacktestResults(trades, hist, meta){
     lastBacktestTrades = trades.map(t => Object.assign({}, t, {epoch: hist[t.index] ? hist[t.index].epoch : 0}));
     lastBacktestMeta = meta;
-    const allClosed = trades.filter(t => t.result !== 'open');
-    // Ambiguous same-candle SL/TP outcomes (Part 18): OHLC data alone can't
-    // tell us which was actually touched first intrabar, so these are
-    // excluded from the primary win/loss stats rather than silently folded
-    // into SL — and counted separately below so the real ambiguity rate is
-    // visible instead of hidden.
-    const ambiguous = meta.strat==='meanrev' ? allClosed.filter(t => t.result==='AMBIGUOUS') : [];
-    const closed = meta.strat==='meanrev' ? allClosed.filter(t => t.result!=='AMBIGUOUS') : allClosed;
-    const n = closed.length;
-    const wins = closed.filter(t => t.R > 0).length;
+    const {allClosed, ambiguous, closed, n, wins, totalR, avgR, winRate} = summarizeClosedTrades(trades, meta.strat);
     // Headline counts always read the raw win/loss `result` bucket (full
     // loss vs. not), the same meaning for every strategy. For Trend this
     // matters: `result` is 'SL' only on a genuine full loss (see
@@ -2646,9 +2678,6 @@
     const tp1tp2 = closed.filter(t => label(t)==='TP1+TP2').length;
     const tp1be = closed.filter(t => label(t)==='TP1+BE').length;
     const timeStops = meta.strat==='meanrev' ? closed.filter(t => t.timeStop).length : 0;
-    const totalR = closed.reduce((s,t)=>s+t.R, 0);
-    const avgR = n ? totalR/n : 0;
-    const winRate = n ? wins/n*100 : 0;
 
     const symLabel = $('symbol').selectedOptions[0].text;
     const stratLabel = meta.strat==='fvg' ? 'StructureLedgerAI Sweep + FVG' : meta.strat==='volsqueeze' ? 'Vol Squeeze Breakout' : meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)' : 'Trend Following (Donchian)';
@@ -2850,25 +2879,37 @@
     bucket[part] = merged;
     delete bucket[part+'_pages'];
 
+    // bucket.onComplete (set only by the Batch Scan path below) redirects
+    // the finished run away from the interactive backtestslot panel and into
+    // the caller's own handling instead — the fetch/simulate pipeline itself
+    // is identical either way, so a batch run can never silently compute
+    // something different from what "Run Backtest" would show for the same
+    // symbol/strategy/timeframe.
     if (bucket.kind === 'trend' && bucket.h1 && bucket.h4){
-      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running trailing-stop walk-forward across ${bucket.h1.length} H1 bars…</div></div>`;
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running trailing-stop walk-forward across ${bucket.h1.length} H1 bars…</div></div>`;
       setTimeout(() => {
         const trades = simulateTrendBacktest(bucket.h1, bucket.h4);
-        renderBacktestResults(trades, bucket.h1, {purpose:'backtest_trend', sym:curSym, strat:'trend'});
+        const meta = {purpose:'backtest_trend', sym:bucket.sym, strat:'trend'};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.h1, meta);
+        else renderBacktestResults(trades, bucket.h1, meta);
         delete pendingEABacktest[runId];
       }, 30);
       return;
     }
     if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf) && (!bucket.wantD1 || bucket.d1) && (!bucket.wantM5Sweep || bucket.m5)){
-      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
         const trades = simulateBacktest(bucket.data, bucket.strat, bucket.htf || null, bucket.wantPD, bucket.wantDisp, bucket.wantBreaker, bucket.d1 || null, bucket.m5 || null);
-        // Diagnostic funnel — always computed for FVG backtests, not just
-        // when trades come back zero, so it's a standing debugging tool
-        // rather than a one-off. Uses bucket.wantDisp/wantBreaker so the
-        // funnel reflects whatever's actually configured, same as the trades.
-        const fvgDiag = bucket.strat==='fvg' ? runFVGDiagnostic(bucket.data, bucket.m5 || null, bucket.d1 || null, bucket.wantDisp, bucket.wantBreaker) : null;
-        renderBacktestResults(trades, bucket.data, {purpose:'backtest', sym:curSym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf, pdFiltered: !!bucket.wantPD, dispFiltered: !!bucket.wantDisp, breakerFiltered: !!bucket.wantBreaker, d1Filtered: !!bucket.wantD1, sweepFiltered: !!bucket.wantM5Sweep, fvgDiag});
+        // Diagnostic funnel — always computed for FVG backtests run from the
+        // interactive panel, not just when trades come back zero, so it's a
+        // standing debugging tool rather than a one-off. Skipped in batch
+        // mode purely to keep a multi-symbol scan fast; the funnel's own
+        // authoritative functions are the same ones that produced `trades`
+        // either way, so nothing about the batch numbers depends on this.
+        const fvgDiag = (bucket.strat==='fvg' && !bucket.onComplete) ? runFVGDiagnostic(bucket.data, bucket.m5 || null, bucket.d1 || null, bucket.wantDisp, bucket.wantBreaker) : null;
+        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf, pdFiltered: !!bucket.wantPD, dispFiltered: !!bucket.wantDisp, breakerFiltered: !!bucket.wantBreaker, d1Filtered: !!bucket.wantD1, sweepFiltered: !!bucket.wantM5Sweep, fvgDiag};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
+        else renderBacktestResults(trades, bucket.data, meta);
         delete pendingEABacktest[runId];
       }, 30);
       return;
@@ -2877,16 +2918,27 @@
 
   $('spreadInput').addEventListener('input', e => { spreadCostR = Math.max(0, Number(e.target.value) || 0); savePrefs(); });
 
-  $('btnBacktest').addEventListener('click', () => {
-    if (!ws || ws.readyState !== 1) return;
-    if (curStrategy === 'trend'){
+  function symbolLabel(sym){
+    const opt = document.querySelector(`#symbol option[value="${sym}"]`);
+    return opt ? opt.textContent : sym;
+  }
+
+  // Kicks off the page-fetch(es) for one symbol/strategy/timeframe backtest.
+  // Shared by the interactive "Run Backtest" button (onComplete omitted —
+  // finalizePart renders straight into #backtestslot as before) and Batch
+  // Scan (onComplete provided — finalizePart calls it instead, see there).
+  // Depth/filter selection is identical either way, driven by whatever the
+  // depth selector is currently set to; a batch run for symbol X is exactly
+  // what clicking "Run Backtest" on symbol X would have fetched and computed.
+  function startBacktestFetch(sym, strat, tf, onComplete){
+    if (strat === 'trend'){
       const depth = Number($('btDepth').value);
-      $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4 history for ${$('symbol').selectedOptions[0].text}…</div></div>`;
-      const runId = 'trend' + Date.now();
-      pendingEABacktest[runId] = {kind:'trend', h1_pages:[], h4_pages:[]};
-      requestHistoryPage(curSym, 3600,  5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:depth});
-      requestHistoryPage(curSym, 14400, 1300, 'latest', {runId, part:'h4', pageIndex:0, pagesWanted:depth});
-      return;
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4 history for ${symbolLabel(sym)}…</div></div>`;
+      const runId = 'trend' + Date.now() + Math.random().toString(36).slice(2,7);
+      pendingEABacktest[runId] = {kind:'trend', sym, h1_pages:[], h4_pages:[], onComplete};
+      requestHistoryPage(sym, 3600,  5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:depth});
+      requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'h4', pageIndex:0, pagesWanted:depth});
+      return runId;
     }
     // btDepth's labels (~7/14/20 months etc.) are calibrated assuming H1 candles.
     // A page of 15m/5m/1m candles covers proportionally less calendar time than
@@ -2894,30 +2946,30 @@
     // same real time span regardless of which timeframe is selected. Capped to
     // avoid firing an excessive number of requests on 1m.
     const rawDepth = Number($('btDepth').value);
-    const depth = Math.min(60, Math.ceil(rawDepth * (3600 / curTf)));
+    const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
     // FVG filters are now fixed (no UI toggle): breaker-block overlap and D1
     // agreement are on (the two you asked to be built-in); H4 agreement,
     // OTE-zone, and displacement stay off (kept conservative — mixed results
     // when tested, not promoted to always-on without more evidence).
-    const wantHtf = curStrategy === 'meanrev';
+    const wantHtf = strat === 'meanrev';
     const wantPD = false;
     const wantDisp = false;
-    const wantBreaker = curStrategy === 'fvg';
-    const wantD1 = curStrategy === 'fvg';
-    const wantM5Sweep = curStrategy === 'fvg';
-    $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[curTf]} history for ${$('symbol').selectedOptions[0].text}${wantHtf?' (plus H4 for trend/regime filter)':''}${wantD1?' (plus D1 for trend filter)':''}${wantM5Sweep?' (plus M5 for liquidity sweep filter)':''}…</div></div>`;
-    const runId = 'single' + Date.now();
-    pendingEABacktest[runId] = {kind:'single', strat: curStrategy, tf: curTf, wantHtf, wantPD, wantDisp, wantBreaker, wantD1, wantM5Sweep, data_pages:[]};
-    requestHistoryPage(curSym, curTf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
+    const wantBreaker = strat === 'fvg';
+    const wantD1 = strat === 'fvg';
+    const wantM5Sweep = strat === 'fvg';
+    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for trend/regime filter)':''}${wantD1?' (plus D1 for trend filter)':''}${wantM5Sweep?' (plus M5 for liquidity sweep filter)':''}…</div></div>`;
+    const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
+    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, wantPD, wantDisp, wantBreaker, wantD1, wantM5Sweep, data_pages:[], onComplete};
+    requestHistoryPage(sym, tf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
     if (wantHtf){
       pendingEABacktest[runId].htf_pages = [];
       const htfDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 14400)) || 1);
-      requestHistoryPage(curSym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
+      requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
     }
     if (wantD1){
       pendingEABacktest[runId].d1_pages = [];
       const d1Depth = Math.min(60, Math.ceil(rawDepth * (3600 / 86400)) || 1);
-      requestHistoryPage(curSym, 86400, 700, 'latest', {runId, part:'d1', pageIndex:0, pagesWanted:d1Depth});
+      requestHistoryPage(sym, 86400, 700, 'latest', {runId, part:'d1', pageIndex:0, pagesWanted:d1Depth});
     }
     if (wantM5Sweep){
       pendingEABacktest[runId].m5_pages = [];
@@ -2925,9 +2977,115 @@
       // resolution — e.g. an H1 backtest spanning ~4.5 years needs ~12x as
       // many M5 candles to cover the same period.
       const m5Depth = Math.min(120, Math.ceil(rawDepth * (3600 / 300)) || 1);
-      requestHistoryPage(curSym, 300, 5000, 'latest', {runId, part:'m5', pageIndex:0, pagesWanted:m5Depth});
+      requestHistoryPage(sym, 300, 5000, 'latest', {runId, part:'m5', pageIndex:0, pagesWanted:m5Depth});
     }
+    return runId;
+  }
+
+  $('btnBacktest').addEventListener('click', () => {
+    if (!ws || ws.readyState !== 1) return;
+    startBacktestFetch(curSym, curStrategy, curTf);
   });
+
+  // ---------- Batch Scan: run every checked strategy across every checked
+  // symbol, one at a time, through the exact same startBacktestFetch/
+  // finalizePart/simulate*/computeAdvancedMetrics/backtestVerdict pipeline
+  // as a single interactive "Run Backtest" click — see startBacktestFetch's
+  // and finalizePart's onComplete branches above. This exists purely to
+  // remove the tedium of clicking through combinations by hand; it changes
+  // no math and applies no extra filtering, so a "0 signals" or "no edge"
+  // row here is exactly what a manual run would have shown too.
+  function strategyLabelFor(s){
+    return s==='fvg' ? 'FVG Sweep' : s==='volsqueeze' ? 'Vol Squeeze' : s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
+  }
+  let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
+  function populateBatchChecks(){
+    const stratDefs = [['fvg','FVG Sweep'],['volsqueeze','Vol Squeeze'],['meanrev','Mean Reversion'],['trend','Trend Following']];
+    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
+    const opts = Array.from(document.querySelectorAll('#symbol option'));
+    // Default-check the forex/metals majors only — a first scan should be
+    // fast, and these are the instruments with a real order-book behind
+    // them (unlike Deriv's synthetic indices, which are a continuously-
+    // generated RNG process with no actual participant footprints for
+    // SMC-style structure concepts to detect). Everything else is opt-in.
+    const defaultOn = new Set(['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD','frxUSDCHF','frxNZDUSD','frxXAUUSD']);
+    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" ${defaultOn.has(o.value)?'checked':''}> ${o.textContent}</label>`).join('');
+  }
+  function renderBatchTable(){
+    const wrap = $('batchResultsWrap');
+    if (!batchResults.length){ wrap.innerHTML = ''; return; }
+    const rows = batchResults.map(r => {
+      if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
+      const v = r.verdict;
+      return `<tr>
+        <td>${r.symLabel}</td><td>${r.stratLabel}</td><td>${r.tfLabel}</td>
+        <td>${r.n}</td>
+        <td>${r.n ? r.winRate.toFixed(1)+'%' : '—'}</td>
+        <td class="${r.avgR>0?'pos':r.avgR<0?'neg':''}">${r.n ? (r.avgR>=0?'+':'')+r.avgR.toFixed(3)+'R' : '—'}</td>
+        <td>${r.episodes==null?'—':r.episodes}</td>
+        <td class="${r.episodeAvg>0?'pos':r.episodeAvg<0?'neg':''}">${r.episodeAvg==null?'—':(r.episodeAvg>=0?'+':'')+r.episodeAvg.toFixed(3)+'R'}</td>
+        <td><span class="batch-verdict ${v.cls}">${v.text}</span></td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="batch-table"><thead><tr>
+      <th>Symbol</th><th>Strategy</th><th>TF</th><th>Signals</th><th>Win%</th><th>Avg R</th><th>Episodes</th><th>Episode Avg R</th><th>Verdict</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function handleBatchResult(item, trades, hist, meta){
+    const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
+    const m = computeAdvancedMetrics(trades);
+    const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
+    const idx = batchResults.findIndex(r => r.key === item.key);
+    const row = {
+      key: item.key, status:'done',
+      symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
+      tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
+      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict
+    };
+    if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  function runNextBatchItem(){
+    if (batchStopRequested || !batchQueue.length){
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      $('batchProgress').textContent = !batchQueue.length ? 'Done.' : 'Stopped.';
+      return;
+    }
+    if (!ws || ws.readyState !== 1){
+      $('batchProgress').textContent = 'Lost connection — stopped.';
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      return;
+    }
+    const item = batchQueue.shift();
+    const done = batchResults.filter(r=>r.status==='done').length;
+    $('batchProgress').textContent = `Running ${symbolLabel(item.sym)} · ${strategyLabelFor(item.strat)} — ${done} done, ${batchQueue.length} queued…`;
+    batchResults.push({key:item.key, status:'running', symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat)});
+    renderBatchTable();
+    startBacktestFetch(item.sym, item.strat, item.tf, (trades, hist, meta) => handleBatchResult(item, trades, hist, meta));
+  }
+  function runBatchScan(){
+    if (!ws || ws.readyState !== 1 || batchRunning) return;
+    const strats = Array.from(document.querySelectorAll('.batchStrat:checked')).map(el => el.value);
+    const syms = Array.from(document.querySelectorAll('.batchSym:checked')).map(el => el.value);
+    if (!strats.length || !syms.length) return;
+    batchQueue = [];
+    for (const sym of syms) for (const strat of strats) batchQueue.push({sym, strat, tf: curTf, key: sym+'|'+strat});
+    batchResults = [];
+    batchStopRequested = false;
+    batchRunning = true;
+    $('btnRunBatch').disabled = true;
+    $('btnStopBatch').disabled = false;
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  $('btnRunBatch').addEventListener('click', runBatchScan);
+  $('btnStopBatch').addEventListener('click', () => { batchStopRequested = true; $('batchProgress').textContent = 'Stopping after current item…'; });
+  populateBatchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnFvg').addEventListener('click', () => { setStrategy('fvg'); });
