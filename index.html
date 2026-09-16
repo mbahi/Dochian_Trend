@@ -236,7 +236,7 @@
     </div>
   </header>
 
-  <details class="readfirst" style="display:none">
+  <details class="readfirst">
     <summary>📖 Read this first — what's actually validated here</summary>
     <div class="readfirst-body">
       <p><b>What this is:</b> a live structure-analysis tool. It computes Entry/SL/TP1/TP2 from detected chart patterns. It <b>never places trades</b> — every number shown must be executed manually, by you, after you've confirmed it yourself.</p>
@@ -251,9 +251,15 @@
     </div>
   </details>
 
-  <div class="rule11banner" style="display:none">
+  <div class="rule11banner">
     <b>RULE 11</b> — Disclose Entry / SL / TP1 / TP2 before executing, on any instrument.
     Two-tier TP: close 50% at TP1, move SL to breakeven, ride the rest to TP2. No trade goes in undisclosed.
+  </div>
+
+  <div class="rulepanel" id="nfpPanel" style="margin-bottom:12px">
+    <h3>NFP Straddle Helper</h3>
+    <div id="nfpStatus" style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.6"></div>
+    <div id="nfpTicketSlot"></div>
   </div>
 
   <div class="mtf" id="mtfstrip"></div>
@@ -354,7 +360,7 @@
       <div id="logbody"><div class="logempty">Nothing disclosed yet this browser/device.</div></div>
     </div>
 
-    <div class="rulepanel" style="display:none">
+    <div class="rulepanel">
       <h3>How this is computed</h3>
       <p>
         <b>Multi-timeframe strip</b> — 1m/5m/15m/1H are streamed and analyzed independently, all the time, side by side. Each timeframe has its own genuinely different structure — switching the main chart doesn't "change" a setup, it's reading a different one. Use the strip to check for confluence across timeframes before you rely on any single one.<br>
@@ -767,15 +773,7 @@
   // guaranteed to be clipped the moment they fill. Threshold is relative to
   // price (~0.085% ≈ 10 pips on a 1.16 EURUSD price) so it scales sensibly
   // across forex, metals, and synthetic indices without a per-symbol table.
-  // This is deliberately strategy-specific: FVG Confluence's degenerate
-  // near-zero stops (SL almost equal to entry, a leftover artifact of the
-  // invalidation swing sitting right on the FVG edge) are genuine noise. SBR/
-  // RBS Retest, by contrast, is *designed* around a tight stop placed just
-  // beyond the retest candle — that's the point of a retest entry, not a bug
-  // — so it gets a much smaller floor, just enough to catch true zero-risk
-  // degenerate cases without rejecting its normal, legitimate setups.
   const MIN_RISK_FRACTION = 0.00085;
-  const MIN_RISK_FRACTION_TIGHT = 0.00015;
   function validateTicket(t, minRiskFraction){
     if (!t) return null;
     const floor = minRiskFraction != null ? minRiskFraction : MIN_RISK_FRACTION;
@@ -792,10 +790,11 @@
     return t;
   }
 
-  // ---------- ported from Volatility_SBR_RBS_EA.mq5 ----------
-  // NOTE: chronological indices here (0=oldest...end=newest), opposite of
-  // MQL5's series arrays (0=newest). Search directions below are translated
-  // accordingly but the underlying rules are identical to the EA.
+  // Shared swing-fractal lookups used by computeTrendBiasEA/computeTrendBiasMargin
+  // below (H4/D1 trend-bias checks for FVG's optional filter and Mean
+  // Reversion's regime filter). Chronological indices here (0=oldest...
+  // end=newest), opposite of MQL5's series arrays (0=newest) — kept for
+  // consistency with where this was originally ported from.
 
   function findLastSwingHigh(c, lb, beforeIndex){
     for (let i=beforeIndex; i>=lb; i--){
@@ -814,32 +813,6 @@
       if (ok) return i;
     }
     return -1;
-  }
-  function findBreakBelow(c, level, swingIdx, maxBars){
-    const ceil = Math.min(c.length-1, swingIdx+maxBars);
-    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].low < level) return i; }
-    return -1;
-  }
-  function findBreakAbove(c, level, swingIdx, maxBars){
-    const ceil = Math.min(c.length-1, swingIdx+maxBars);
-    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].high > level) return i; }
-    return -1;
-  }
-  function getOrderBlockRange(c, barIdx){
-    return { obLow: Math.min(c[barIdx].open, c[barIdx].close), obHigh: Math.max(c[barIdx].open, c[barIdx].close) };
-  }
-  function detectFVGStraddle(c, b, bullish){
-    if (b-1 < 0 || b+1 >= c.length) return false;
-    return bullish ? (c[b+1].low > c[b-1].high) : (c[b+1].high < c[b-1].low);
-  }
-  function detectMitigationBlock(c, b, bullish){
-    const floor = Math.max(0, b-6);
-    for (let i=b-1; i>=floor; i--){
-      const isRed = c[i].close < c[i].open, isGreen = c[i].close > c[i].open;
-      if (bullish && isRed) return true;
-      if (!bullish && isGreen) return true;
-    }
-    return false;
   }
   function computeTrendBiasEA(c, lb){
     if (!c || c.length < lb*4+4) return 0;
@@ -2657,13 +2630,18 @@
     const closed = meta.strat==='meanrev' ? allClosed.filter(t => t.result!=='AMBIGUOUS') : allClosed;
     const n = closed.length;
     const wins = closed.filter(t => t.R > 0).length;
-    // For Trend, prefer exitResult (accurate mechanism label) over the raw
-    // `result` bucket for these DISPLAY counts specifically — `result`
-    // itself stays untouched everywhere else (see finishTrendTrade) so
-    // cappedTradeR/episode stats aren't affected, but the headline
-    // "full SL"/"TP1+TP2" cells the person actually reads should say what
-    // really happened, not the win/loss bucket shorthand.
-    const label = meta.strat==='trend' ? (t => t.exitResult || t.result) : (t => t.result);
+    // Headline counts always read the raw win/loss `result` bucket (full
+    // loss vs. not), the same meaning for every strategy. For Trend this
+    // matters: `result` is 'SL' only on a genuine full loss (see
+    // finishTrendTrade) and 'TP1+TP2' for every other exit (trailing stop,
+    // Donchian breach, or an actual H4-confirmed target) — so with the
+    // H4-confirmed target off (TREND_TP_RR=0, the default), trades still
+    // land correctly in these two buckets instead of the "TP1+TP2" cell
+    // going to zero just because no trade ever touched a fixed target.
+    // The exact exit mechanism (trailing stop vs. Donchian exit vs. target
+    // hit) is broken out separately below in "Actual exit mechanism", which
+    // already reads exitResult/exitReason directly and is unaffected by this.
+    const label = t => t.result;
     const fullLosses = closed.filter(t => label(t)==='SL').length;
     const tp1tp2 = closed.filter(t => label(t)==='TP1+TP2').length;
     const tp1be = closed.filter(t => label(t)==='TP1+BE').length;
