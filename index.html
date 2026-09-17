@@ -300,6 +300,25 @@
     <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
+  <div class="btpanel" id="spikePanel" style="margin-bottom:12px">
+    <h3>Spike Analysis — Boom/Crash</h3>
+    <div class="btmeta">Research tool, not a strategy: fetches real 1-minute history for each checked instrument, detects the large one-directional spikes Boom/Crash indices are built around (up-spikes on Boom, down-spikes on Crash), and reports the real gap and size statistics — the numbers a Hunt-the-Spike or Fade-the-Grind strategy would need to be designed from actual data instead of a guess. Gap CV near 1 suggests the interval between spikes is memoryless (timing doesn't help); CV well below 1 suggests it's more clustered around the average (timing might help).</div>
+    <div id="spikeSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim);padding:8px;border:1px solid var(--line);border-radius:6px"></div>
+    <div class="ticket-actions">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center">history:</span>
+      <select id="spikePages" title="How much 1-minute history to scan per instrument">
+        <option value="1">~3.5 days</option>
+        <option value="3" selected>~10 days</option>
+        <option value="6">~21 days</option>
+        <option value="12">~42 days</option>
+      </select>
+      <button class="tbtn" id="btnRunSpike" style="background:var(--brass);color:#0f1826">Run Spike Analysis</button>
+      <button class="tbtn" id="btnStopSpike" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <span id="spikeProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
+    </div>
+    <div id="spikeResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
+  </div>
+
   <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
     <h3 style="margin-bottom:6px">Mean Reversion (Bollinger + RSI2)</h3>
     <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
@@ -1048,6 +1067,56 @@
     }
     return sum/period;
   }
+  // ---------- Spike Analysis (Boom/Crash research tool) ----------
+  // Not a strategy — measures the real gap and size statistics of the
+  // documented spike mechanism (a guaranteed-direction, large one-bar move
+  // at a roughly-known average frequency) so a Hunt-the-Spike or
+  // Fade-the-Grind strategy can be designed from actual data instead of a
+  // guess. Runs on 1m candles (finest granularity this app fetches) since
+  // these spikes are brief; direction is inferred from the symbol name
+  // (BOOM* spikes up, CRASH* spikes down) — both documented product
+  // behavior, not something this function infers.
+  const SPIKE_BASELINE_LOOKBACK = 20, SPIKE_THRESHOLD_MULT = 4, SPIKE_MIN_GAP_CANDLES = 3;
+  function detectSpikes(c, direction){
+    const spikes = [];
+    for (let i = SPIKE_BASELINE_LOOKBACK; i < c.length; i++){
+      const isRightDir = direction==='up' ? c[i].close > c[i].open : c[i].close < c[i].open;
+      if (!isRightDir) continue;
+      const ranges = c.slice(i-SPIKE_BASELINE_LOOKBACK, i).map(x => x.high-x.low).sort((a,b)=>a-b);
+      const median = ranges[Math.floor(ranges.length/2)];
+      if (!median || median <= 0) continue;
+      const displacement = direction==='up' ? (c[i].close-c[i].open) : (c[i].open-c[i].close);
+      if (displacement >= median*SPIKE_THRESHOLD_MULT) spikes.push({index:i, epoch:c[i].epoch, displacement});
+    }
+    // Collapse detections within SPIKE_MIN_GAP_CANDLES of each other down to
+    // the single largest — a genuine spike often prints as 2-3 anomalous
+    // candles in a row, not one, and that's one event, not several.
+    const collapsed = [];
+    for (const s of spikes){
+      const prev = collapsed[collapsed.length-1];
+      if (prev && s.index - prev.index <= SPIKE_MIN_GAP_CANDLES){
+        if (s.displacement > prev.displacement) collapsed[collapsed.length-1] = s;
+      } else collapsed.push(s);
+    }
+    return collapsed;
+  }
+  function computeSpikeStats(spikes, c){
+    const n = spikes.length;
+    if (n < 2) return null;
+    const gapsMin = [];
+    for (let i=1;i<spikes.length;i++) gapsMin.push((spikes[i].epoch - spikes[i-1].epoch)/60);
+    const meanGap = gapsMin.reduce((a,b)=>a+b,0)/gapsMin.length;
+    const variance = gapsMin.reduce((s,g)=>s+(g-meanGap)**2,0)/gapsMin.length;
+    const stdevGap = Math.sqrt(variance);
+    const cv = meanGap>0 ? stdevGap/meanGap : null;
+    const magsATR = spikes.map(s => {
+      const atrVal = computeATR(c, Math.max(14, s.index-1), 14);
+      return atrVal ? s.displacement/atrVal : null;
+    }).filter(v => v!=null).sort((a,b)=>a-b);
+    const pct = p => magsATR.length ? magsATR[Math.min(magsATR.length-1, Math.floor(p*magsATR.length))] : null;
+    return { n, meanGap, stdevGap, cv, medianMagATR: pct(0.5), p25MagATR: pct(0.25), p75MagATR: pct(0.75), maxMagATR: magsATR[magsATR.length-1] };
+  }
+
   function donchianChannel(c, uptoIndex, period){
     if (uptoIndex < period-1) return null;
     let hi = -Infinity, lo = Infinity;
@@ -2090,6 +2159,13 @@
       }, 30);
       return;
     }
+    // Spike Analysis: a plain 1m-candle fetch with no strategy/simulation
+    // attached — hands the merged candle series straight to the caller.
+    if (bucket.kind === 'spike' && bucket.data){
+      bucket.onComplete(bucket.data);
+      delete pendingEABacktest[runId];
+      return;
+    }
   }
 
   $('spreadInput').addEventListener('input', e => { spreadCostR = Math.max(0, Number(e.target.value) || 0); savePrefs(); });
@@ -2140,6 +2216,93 @@
     if (!ws || ws.readyState !== 1) return;
     startBacktestFetch(curSym, curStrategy, curTf);
   });
+
+  // ---------- Spike Analysis orchestration ----------
+  function startSpikeAnalysisFetch(sym, pages, onComplete){
+    const runId = 'spike' + Date.now() + Math.random().toString(36).slice(2,7);
+    pendingEABacktest[runId] = {kind:'spike', sym, data_pages:[], onComplete};
+    requestHistoryPage(sym, 60, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:pages});
+    return runId;
+  }
+  let spikeQueue = [], spikeResults = [], spikeRunning = false, spikeStopRequested = false;
+  function populateSpikeChecks(){
+    const symDefs = [
+      ['BOOM300N','Boom 300'],['BOOM500','Boom 500'],['BOOM600','Boom 600'],['BOOM900','Boom 900'],['BOOM1000','Boom 1000'],
+      ['CRASH300N','Crash 300'],['CRASH500','Crash 500'],['CRASH600','Crash 600'],['CRASH900','Crash 900'],['CRASH1000','Crash 1000']
+    ];
+    $('spikeSymChecks').innerHTML = symDefs.map(([v,l]) => `<label><input type="checkbox" class="spikeSym" value="${v}" data-label="${l}" checked> ${l}</label>`).join('');
+  }
+  function renderSpikeTable(){
+    const wrap = $('spikeResultsWrap');
+    if (!spikeResults.length){ wrap.innerHTML = ''; return; }
+    const rows = spikeResults.map(r => {
+      if (r.status === 'running') return `<tr class="running"><td colspan="8">${r.label} — fetching/analyzing…</td></tr>`;
+      const s = r.stats;
+      if (!s) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="6">Not enough spikes detected to compute statistics.</td></tr>`;
+      return `<tr>
+        <td>${r.label}</td>
+        <td>${r.candleCount}</td>
+        <td>${s.n}</td>
+        <td>${s.meanGap.toFixed(1)}</td>
+        <td>${s.stdevGap.toFixed(1)}</td>
+        <td>${s.cv!=null?s.cv.toFixed(2):'—'}</td>
+        <td>${s.medianMagATR!=null?s.medianMagATR.toFixed(2):'—'}</td>
+        <td>${s.maxMagATR!=null?s.maxMagATR.toFixed(2):'—'}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="batch-table"><thead><tr>
+      <th>Symbol</th><th>1m candles</th><th>Spikes found</th><th>Avg gap (min)</th><th>Gap StDev</th><th>Gap CV</th><th>Median size (ATR)</th><th>Max size (ATR)</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function handleSpikeResult(item, candles){
+    const direction = item.sym.startsWith('BOOM') ? 'up' : 'down';
+    const spikes = detectSpikes(candles, direction);
+    const stats = computeSpikeStats(spikes, candles);
+    const idx = spikeResults.findIndex(r => r.key === item.sym);
+    const row = {key:item.sym, status:'done', label:item.label, candleCount:candles.length, stats};
+    if (idx>=0) spikeResults[idx] = row; else spikeResults.push(row);
+    renderSpikeTable();
+    runNextSpikeItem();
+  }
+  function runNextSpikeItem(){
+    if (spikeStopRequested || !spikeQueue.length){
+      spikeRunning = false;
+      $('btnRunSpike').disabled = false;
+      $('btnStopSpike').disabled = true;
+      $('spikeProgress').textContent = !spikeQueue.length ? 'Done.' : 'Stopped.';
+      return;
+    }
+    if (!ws || ws.readyState !== 1){
+      $('spikeProgress').textContent = 'Lost connection — stopped.';
+      spikeRunning = false;
+      $('btnRunSpike').disabled = false;
+      $('btnStopSpike').disabled = true;
+      return;
+    }
+    const item = spikeQueue.shift();
+    const done = spikeResults.filter(r=>r.status==='done').length;
+    $('spikeProgress').textContent = `Running ${item.label} — ${done} done, ${spikeQueue.length} queued…`;
+    spikeResults.push({key:item.sym, status:'running', label:item.label});
+    renderSpikeTable();
+    const pages = Number($('spikePages').value);
+    startSpikeAnalysisFetch(item.sym, pages, (candles) => handleSpikeResult(item, candles));
+  }
+  function runSpikeAnalysis(){
+    if (!ws || ws.readyState !== 1 || spikeRunning) return;
+    const syms = Array.from(document.querySelectorAll('.spikeSym:checked')).map(el => ({sym: el.value, label: el.dataset.label}));
+    if (!syms.length) return;
+    spikeQueue = syms.slice();
+    spikeResults = [];
+    spikeStopRequested = false;
+    spikeRunning = true;
+    $('btnRunSpike').disabled = true;
+    $('btnStopSpike').disabled = false;
+    renderSpikeTable();
+    runNextSpikeItem();
+  }
+  $('btnRunSpike').addEventListener('click', runSpikeAnalysis);
+  $('btnStopSpike').addEventListener('click', () => { spikeStopRequested = true; $('spikeProgress').textContent = 'Stopping after current item…'; });
+  populateSpikeChecks();
 
   // ---------- Batch Scan: run every checked strategy across every checked
   // symbol, one at a time, through the exact same startBacktestFetch/
