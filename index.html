@@ -1109,13 +1109,19 @@
     const variance = gapsMin.reduce((s,g)=>s+(g-meanGap)**2,0)/gapsMin.length;
     const stdevGap = Math.sqrt(variance);
     const cv = meanGap>0 ? stdevGap/meanGap : null;
+    const atrVals = [];
     const magsATR = spikes.map(s => {
       const atrVal = computeATR(c, Math.max(14, s.index-1), 14);
+      if (atrVal) atrVals.push(atrVal);
       return atrVal ? s.displacement/atrVal : null;
     }).filter(v => v!=null).sort((a,b)=>a-b);
     const pct = p => magsATR.length ? magsATR[Math.min(magsATR.length-1, Math.floor(p*magsATR.length))] : null;
     const meanMagATR = magsATR.length ? magsATR.reduce((a,b)=>a+b,0)/magsATR.length : null;
-    return { n, meanGap, stdevGap, cv, meanMagATR, medianMagATR: pct(0.5), p25MagATR: pct(0.25), p75MagATR: pct(0.75), maxMagATR: magsATR[magsATR.length-1] };
+    // Raw ATR in price units (not normalized) — needed to convert real costs
+    // (spread, swap) quoted in price/percentage terms into the same ATR
+    // basis as everything else here, instead of guessing at the conversion.
+    const meanATR = atrVals.length ? atrVals.reduce((a,b)=>a+b,0)/atrVals.length : null;
+    return { n, meanGap, stdevGap, cv, meanMagATR, medianMagATR: pct(0.5), p25MagATR: pct(0.25), p75MagATR: pct(0.75), maxMagATR: magsATR[magsATR.length-1], meanATR };
   }
   // The other half of Hunt-the-Spike's expectancy: how far price moves
   // AGAINST a position held from right after one spike until the next one
@@ -2266,9 +2272,9 @@
     const wrap = $('spikeResultsWrap');
     if (!spikeResults.length){ wrap.innerHTML = ''; return; }
     const rows = spikeResults.map(r => {
-      if (r.status === 'running') return `<tr class="running"><td colspan="11">${r.label} — fetching/analyzing…</td></tr>`;
+      if (r.status === 'running') return `<tr class="running"><td colspan="12">${r.label} — fetching/analyzing…</td></tr>`;
       const s = r.stats, g = r.grind;
-      if (!s) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="9">Not enough spikes detected to compute statistics.</td></tr>`;
+      if (!s) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="10">Not enough spikes detected to compute statistics.</td></tr>`;
       // Mean vs mean is the number that actually determines long-run
       // expectancy for a position held through every cycle — median/P90 are
       // robust but blind to exactly how bad the tail gets, which is what
@@ -2287,10 +2293,11 @@
         <td>${s.medianMagATR!=null?s.medianMagATR.toFixed(2):'—'}</td>
         <td>${g&&g.p90CostATR!=null?g.p90CostATR.toFixed(2):'—'}</td>
         <td class="${tailRatio>1?'pos':tailRatio<1?'neg':''}">${tailRatio!=null?tailRatio.toFixed(2):'—'}</td>
+        <td>${s.meanATR!=null?s.meanATR.toFixed(4):'—'}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="batch-table"><thead><tr>
-      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Avg gap (min)</th><th>Gap CV</th><th>Mean spike (ATR)</th><th>Mean grind (ATR)</th><th>Mean spike ÷ mean grind</th><th>Median spike (ATR)</th><th>P90 grind (ATR)</th><th>Median spike ÷ P90 grind</th>
+      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Avg gap (min)</th><th>Gap CV</th><th>Mean spike (ATR)</th><th>Mean grind (ATR)</th><th>Mean spike ÷ mean grind</th><th>Median spike (ATR)</th><th>P90 grind (ATR)</th><th>Median spike ÷ P90 grind</th><th>Avg ATR(14), 1m (price units)</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   }
   function handleSpikeResult(item, candles){
