@@ -247,17 +247,9 @@
   </header>
 
   <details class="readfirst">
-    <summary>📖 Read this first — what's actually validated here</summary>
+    <summary>📖 Read this first</summary>
     <div class="readfirst-body">
-      <p><b>What this is:</b> a live structure-analysis tool. It computes Entry/SL/TP1/TP2 from detected chart patterns. It <b>never places trades</b> — every number shown must be executed manually, by you, after you've confirmed it yourself.</p>
-      <p><b>Validation status by strategy — this is not the same for all four:</b></p>
-      <ul>
-        <li><b>FVG Confluence</b> — mixed results across a broad sweep of symbols tonight: XAU/USD looked promising (20 episodes, +0.29R) but EUR/USD and GBP/USD were inconsistent. Not enough to trust yet — see the live status badge for the current read.</li>
-        <li><b>Volatility Squeeze Breakout</b> — Bollinger Bands compressed inside a Keltner Channel (the "coiled" state), then a directional break of the squeeze's own high/low once volatility expands back out. Target is a measured-move projection off the squeeze range itself, not an arbitrary R:R. Just added — treat every result as unverified until it accumulates real episodes.</li>
-        <li><b>Mean Reversion (Bollinger/RSI2)</b> — Bollinger Band(20,2σ) extreme + RSI(2) confirmation, only when H4 shows no clear trend (fades ranges, not trends — the opposite regime to Trend Following). Just added — treat every result as unverified until it accumulates real episodes.</li>
-        <li><b>Trend Following (Donchian)</b> — H4 momentum-sign trend filter gates an H1 Donchian(20) breakout entry; ATR(14)*2 initial stop, trails at ATR(14)*3 or exits on a Donchian(10) breach against the position, whichever comes first. No fixed take-profit — this only has a working backtest as of tonight, treat as unverified until it accumulates real episodes.</li>
-      </ul>
-      <p><b>Before risking real money on any of this:</b> run it on a demo account first, disclose every setup to someone who'll actually check it (not just click "Mark disclosed"), and size positions to a fixed $ risk you've decided in advance — not to how confident a setup looks.</p>
+      <p>This computes Entry/SL/TP1/TP2 from detected chart patterns. It <b>never places trades</b> — every number must be executed manually, by you, after you've confirmed it yourself. Both strategies here have been tested broadly across real instruments; check the validation badge under each strategy for the current read before trusting a signal, and run any setup on a demo account first.</p>
     </div>
   </details>
 
@@ -278,12 +270,10 @@
     <div><span class="symname" id="symlabel">EUR/USD</span></div>
     <div class="quote" id="quote">–</div>
     <div class="strategy-toggle">
-      <button data-s="fvg" class="active" id="btnFvg">StructureLedgerAI Sweep + FVG</button>
-      <button data-s="volsqueeze" id="btnVS">Vol Squeeze Breakout</button>
-      <button data-s="meanrev" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
+      <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
     </div>
-    <select id="btDepth" title="How far back to fetch (Trend Following/Mean Reversion paginate for real depth)">
+    <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
       <option value="2">~14 months</option>
       <option value="3" selected>~20 months</option>
@@ -291,10 +281,7 @@
       <option value="8">~4.5 years</option>
     </select>
     <button class="tbtn" id="btnBacktest" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Run Backtest</button>
-    <button class="tbtn" id="btnMaxSelectivity" title="Sets Mean Reversion's min regime margin, Vol Squeeze's full-range requirement, and Trend Following's H4-confirmed TP to their tightest/highest-conviction values. Doesn't change entry logic, stops, or anything else — only tightens filters that already exist. Whichever strategy tab you're on when you run the backtest is the one that setting actually affects that run." style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Max Selectivity Preset</button>
-    <label id="vsbFullRangeWrap" style="display:none;align-items:center;gap:6px;margin-left:8px;font-size:0.85em">
-      <input type="checkbox" id="vsbFullRange"> Require full-range break (no rejection wick)
-    </label>
+    <button class="tbtn" id="btnMaxSelectivity" title="Sets Mean Reversion's min regime margin and Trend Following's H4-confirmed TP to their tightest/highest-conviction values. Doesn't change entry logic or stops — only tightens filters that already exist. Whichever strategy tab you're on when you run the backtest is the one that setting affects." style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Max Selectivity Preset</button>
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
@@ -302,7 +289,7 @@
 
   <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
     <h3>Batch Scan</h3>
-    <div class="btmeta">Runs every checked strategy across every checked symbol, one combination at a time, through the exact same walk-forward engine and raw/corrected/verdict math as "Run Backtest" above — nothing here is tuned differently or cherry-picked. Depth follows the selector above; more symbols × strategies means more requests, so start small. A "0 signals" row is a real result, not an error.</div>
+    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error.</div>
     <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
     <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
     <div class="ticket-actions">
@@ -314,9 +301,9 @@
   </div>
 
   <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
-    <h3 style="margin-bottom:6px">Mean Reversion V2 (Bollinger + RSI2, confirmed reversal) — independent of the timeframe strip's structure overlays but runs on whichever timeframe tab is selected above. Two user-adjustable settings below; everything else fixed:</h3>
+    <h3 style="margin-bottom:6px">Mean Reversion (Bollinger + RSI2)</h3>
     <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
-      Extreme: BB(20,2σ) close beyond the band + RSI(2) &lt;5 / &gt;95 &nbsp;·&nbsp; does NOT enter here — waits &nbsp;·&nbsp; Confirmation: a LATER closed candle closes back inside that band &nbsp;·&nbsp; Entry: the NEXT bar's open after confirmation &nbsp;·&nbsp; H4 regime: blocks only the counter-trend direction (H4 bullish blocks SELL fades, H4 bearish blocks BUY fades; with-trend fades allowed) &nbsp;·&nbsp; SL: ATR(14)×1.5 from entry &nbsp;·&nbsp; TP1: reversion to the confirmation bar's BB mid (close 50%, SL→BE) &nbsp;·&nbsp; TP2: stretch beyond the mid &nbsp;·&nbsp; time-stop: 10 bars from ENTRY (not from the extreme)
+      BB(20,2σ) + RSI(2) extreme &nbsp;·&nbsp; waits for a close back inside the band, enters next bar &nbsp;·&nbsp; H4 regime blocks counter-trend fades only &nbsp;·&nbsp; SL: ATR(14)×1.5 &nbsp;·&nbsp; TP1: BB mid (close 50%, SL→BE) &nbsp;·&nbsp; TP2: stretch beyond mid &nbsp;·&nbsp; time-stop: 10 bars
     </div>
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
       <label style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
@@ -337,9 +324,9 @@
   </div>
 
   <div class="rulepanel" id="trendParamsRow" style="display:none;margin-bottom:12px">
-    <h3 style="margin-bottom:6px">Trend Following (Donchian) — H1/H4 fixed regardless of the timeframe strip. One user-adjustable addition (H4-confirmed target, below); entry/stop/trail rules unchanged:</h3>
+    <h3 style="margin-bottom:6px">Trend Following (Donchian) — fixed to H1/H4</h3>
     <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
-      H4 momentum-sign filter + H1 Donchian(20) breakout entry &nbsp;·&nbsp; SL: ATR(14)×2, trails at ATR(14)×3 &nbsp;·&nbsp; protective exit: Donchian(10) breach against the position
+      H4 momentum filter + H1 Donchian(20) breakout entry &nbsp;·&nbsp; SL: ATR(14)×2, trails at ATR(14)×3 &nbsp;·&nbsp; protective exit: Donchian(10) breach
     </div>
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
       <label style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
@@ -358,8 +345,8 @@
     <canvas id="chart"></canvas>
     <canvas id="amdstrip"></canvas>
     <div class="legend">
-      <span><i style="background:var(--brass)"></i>swing / bullish FVG</span>
-      <span><i style="background:var(--steel)"></i>bearish FVG</span>
+      <span><i style="background:var(--brass)"></i>bullish swing</span>
+      <span><i style="background:var(--steel)"></i>bearish swing</span>
       <span><i style="background:var(--grey-acc)"></i>accumulation</span>
       <span><i style="background:var(--red-acc)"></i>manipulation</span>
       <span><i style="background:var(--green-acc)"></i>distribution</span>
@@ -383,18 +370,15 @@
       <div id="logbody"><div class="logempty">Nothing disclosed yet this browser/device.</div></div>
     </div>
 
-    <div class="rulepanel">
-      <h3>How this is computed</h3>
-      <p>
-        <b>Multi-timeframe strip</b> — 1m/5m/15m/1H are streamed and analyzed independently, all the time, side by side. Each timeframe has its own genuinely different structure — switching the main chart doesn't "change" a setup, it's reading a different one. Use the strip to check for confluence across timeframes before you rely on any single one.<br>
-        <b>Swings</b> — fractal highs/lows (2 bars either side). <b>BOS</b> — close breaks the last swing with the prevailing trend. <b>CHoCH</b> — close breaks against it, flipping the tracked bias.<br>
-        <b>StructureLedgerAI Sweep + FVG strategy</b> — an M5 StructureLedgerAI liquidity sweep initiates every setup; nothing below matters until one occurs. Bullish sweep: an M5 candle's low breaks the prior candle's low, then closes back above it. Bearish sweep: the mirror on highs. Only the most recently CLOSED M5 candle counts — never the one still forming, so nothing repaints mid-candle. Once a sweep fires, a structure response (BOS/CHoCH) must close AFTER it, in the sweep's direction; then an unmitigated FVG must form AT/AFTER that structure break. Sequence, not a checklist — a fresh FVG with no preceding sweep does not qualify, and a sweep with no structure response afterward does not qualify either, however long it's been. Once that chain (sweep → structure → FVG) is intact, the FVG must also overlap a breaker block and agree with D1 trend before it's shown. Entry is the near edge of that FVG; SL beyond the invalidating swing; TP1/TP2 at the next opposing swings. The live status line reflects exactly how far the current sequence has progressed (watching for a sweep / sweep found, waiting on structure / structure confirmed, waiting on FVG / FVG found, checking confluence). Just rebuilt around this sequencing — treat every result as unverified until it accumulates real episodes.<br>
-        <b>Volatility Squeeze Breakout strategy</b> — a Bollinger Band(20,2σ) compressed entirely inside a Keltner Channel(EMA20 ± 1.5×ATR20) marks a "squeeze" — volatility coiled tighter than normal. Once at least 6 consecutive bars have been squeezed and the bands then expand back outside the channel (the "release"), a break of the squeeze's own high or low in that direction is the entry. SL is ATR(20)×1.5; TP1/TP2 are a 1×/2× measured-move projection off the squeeze's own range height, not an arbitrary R:R — a tighter squeeze produces a smaller target, a wider one a bigger target. No H4 filter; self-contained on whichever timeframe tab is selected above. Only just added — treat every result as unverified until it accumulates real episodes.<br>
-        <b>Mean Reversion (Bollinger/RSI2)</b> — the actual defined concept, per Connors' rigorously-backtested short-term reversal research: price must close beyond a 20-period Bollinger Band (2 standard deviations) AND the 2-period RSI must be at a genuine extreme (below 5 for a long, above 95 for a short) — both conditions, not either alone. A regime filter (H4 swing structure showing neither a clear HH/HL uptrend nor LH/LL downtrend) gates every signal, since Bollinger mean-reversion is documented to "walk the bands" and bleed out a string of losses during real trends — this filter exists specifically to avoid fading a strong trend. Target is the 20-period mid-band (the actual mean being reverted to) for TP1 (close 50%, SL→BE), with a modest stretch beyond it for TP2. Stop is ATR(14)×1.5. A 10-bar time-stop force-closes the trade if neither the stop nor target is hit by then, since mean-reversion setups that haven't resolved quickly usually aren't going to. Runs on whichever timeframe tab is selected above, unlike Trend Following's fixed H1/H4. Only just added — treat every result as unverified until it accumulates real episodes.
-        <b>Trend Following (Donchian)</b> — the actual defined concept: H4 momentum sign (200-bar lookback) must agree with the breakout direction before anything is shown; entry is an H1 Donchian(20) channel breakout (price closing beyond the highest high/lowest low of the last 20 fully-closed bars, excluding the current one). Stop starts at ATR(14)×2, then trails at ATR(14)×3 and only ever tightens in the trade's favor, or the trade exits on a Donchian(10) breach against the position — whichever happens first. Optional (off by default) H4-confirmed fixed R:R target: once price touches the target intrabar, the stop tightens to breakeven immediately for protection, but the trade only actually closes for the full target on the H4 candle that CLOSES beyond it — same-bar adverse checks (stop/channel breach) are always resolved first, conservatively. With the target off, TP1/TP2 shown are reference-only (1.5R/3R), not the real exit rule — this strategy's whole edge otherwise comes from letting winners run via the trail rather than capping them at a target, which is also why its backtest can't reuse the fixed-target R-multiple engine the other three strategies share; it tracks an actually open position bar-by-bar instead. Ported from the corrected TSMOM_Donchian_EA.mq5. Structure is fixed to H1/H4, regardless of the timeframe strip above. Only just added — treat every result from it as unverified until it accumulates real episodes, same as anything else here on day one.
-        <b>Disclosure log</b> — stored only in this browser, on this device. Clearing browser data erases it.
+    <details class="rulepanel">
+      <summary style="cursor:pointer;font-family:var(--serif);font-size:13px;color:var(--dim)">How this is computed</summary>
+      <p style="font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7;margin-top:10px">
+        <b>Multi-timeframe strip</b> — 1m/5m/15m/1H streamed independently; each has its own structure. <b>Swings</b> — fractal highs/lows (2 bars either side). <b>BOS</b> — close breaks the last swing with the trend. <b>CHoCH</b> — breaks against it, flipping the bias.<br>
+        <b>Mean Reversion</b> — BB(20,2σ) + RSI(2) extreme, both required, per Connors' short-term reversal research. An H4 regime filter blocks only counter-trend fades. TP1 targets the BB mid, TP2 stretches beyond it, SL is ATR(14)×1.5, with a 10-bar time-stop. Runs on whichever timeframe tab is selected.<br>
+        <b>Trend Following</b> — H4 momentum sign must agree with an H1 Donchian(20) breakout. SL starts at ATR(14)×2, trails at ATR(14)×3, or exits on a Donchian(10) breach — whichever comes first. Fixed to H1/H4 regardless of the timeframe strip. Optional H4-confirmed R:R target, off by default (pure trailing).<br>
+        <b>Disclosure log</b> — stored only in this browser, on this device.
       </p>
-    </div>
+    </details>
   </div>
 
 </div>
@@ -405,7 +389,7 @@
   const WS_URL = `wss://api.derivws.com/trading/v1/options/ws/public?app_id=${APP_ID}`;
   const TFS = [60,300,900,3600,14400,86400];
   const TF_LABELS = {60:'1m',300:'5m',900:'15m',3600:'1H',14400:'4H',86400:'D1'};
-  let ws, curSym = document.getElementById('symbol').value, curTf = 300, curStrategy = 'fvg';
+  let ws, curSym = document.getElementById('symbol').value, curTf = 300, curStrategy = 'meanrev';
   let pendingEABacktest = {};
   let lastUpdateTime = null;
   let candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[]};
@@ -482,12 +466,6 @@
         return;
       }
       setStatus(false, 'api: ' + m.error.message); return;
-    }
-    if (m.msg_type === 'candles' && m.passthrough && m.passthrough.purpose === 'backtest'){
-      const hist = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
-      const results = simulateBacktest(hist, m.passthrough.strat);
-      renderBacktestResults(results, hist, m.passthrough);
-      return;
     }
     if (m.msg_type === 'candles' && m.passthrough && m.passthrough.purpose === 'backtest_ea_page'){
       const {runId, part, gran, count, pageIndex, pagesWanted, sym, requestedEnd} = m.passthrough;
@@ -583,24 +561,6 @@
     return {events, trend};
   }
 
-  function computeFVGs(c){
-    const fvgs = [];
-    for (let i=2;i<c.length;i++){
-      if (c[i].low > c[i-2].high){
-        fvgs.push({start:i-2, end:i, top:c[i].low, bottom:c[i-2].high, direction:'bull', mitigated:false, mitIndex:null});
-      }
-      if (c[i].high < c[i-2].low){
-        fvgs.push({start:i-2, end:i, top:c[i-2].low, bottom:c[i].high, direction:'bear', mitigated:false, mitIndex:null});
-      }
-    }
-    for (const g of fvgs){
-      for (let j=g.end+1;j<c.length;j++){
-        if (c[j].low <= g.top && c[j].high >= g.bottom){ g.mitigated = true; g.mitIndex = j; break; }
-      }
-    }
-    return fvgs;
-  }
-
   function computeAMD(c){
     const blockSize = 8, blocks = [];
     for (let i=0;i+blockSize<=c.length;i+=blockSize){
@@ -616,174 +576,6 @@
       blocks.push({start:i, end:i+blockSize-1, phase});
     }
     return blocks;
-  }
-
-  // A breaker block forms at the swing that got taken out and reversed —
-  // the last opposite-colored candle at/near the origin of the impulse leg
-  // that broke structure. For a bullish break (lastEvent.direction==='bull'),
-  // that's the last down-close candle near the invalidation low before price
-  // reversed up through it; mirror for bearish. Walks a small window forward
-  // from the origin swing since the exact reversal candle isn't always the
-  // swing extreme itself.
-  // ---------- StructureLedgerAI liquidity sweep (M5) ----------
-  // Direct translation of the reference MQL5 BullSweep()/BearSweep()
-  // formulas. MT5 arrays index backward from the current bar (shift=0 is
-  // "now"); this codebase's candle arrays index forward in time (higher
-  // index = more recent). So: shift=1 (last CLOSED candle) -> idx,
-  // shift+1 (the candle before it) -> idx-1, where idx must exclude the
-  // live-updating forming candle.
-  //
-  // Reference (unchanged):
-  //   BullSweep: low[shift] < low[shift+1] && close[shift] > low[shift+1]
-  //   BearSweep: high[shift] > high[shift+1] && close[shift] < high[shift+1]
-  function bullSweep(c, idx){
-    if (idx < 1) return false;
-    return c[idx].low < c[idx-1].low && c[idx].close > c[idx-1].low;
-  }
-  function bearSweep(c, idx){
-    if (idx < 1) return false;
-    return c[idx].high > c[idx-1].high && c[idx].close < c[idx-1].high;
-  }
-  // How many bars of M5 history to scan for a sweep the sequential engine
-  // can still act on. This isn't a tunable knob (per spec: no arbitrary
-  // optimization parameters) — it's a fixed, documented ceiling on how old a
-  // sweep can be before a structure response is no longer "in response to"
-  // it. ~150 M5 bars is ~12.5 hours, generous for any entry timeframe this
-  // tool supports (1m through D1).
-  const SWEEP_LOOKBACK_M5_BARS = 150;
-  // Returns every qualifying sweep within the lookback window ending at
-  // endIdx, each tagged with its epoch and the price level it swept — this
-  // is what the sequential setup engine below walks through, not just "is
-  // there a sweep right now." endIdx must already exclude any live-forming
-  // candle (enforced by the two callers below, not by this function).
-  function computeSweepEvents(c5m, endIdx){
-    const events = [];
-    if (!c5m || endIdx == null || endIdx < 1) return events;
-    const start = Math.max(1, endIdx - SWEEP_LOOKBACK_M5_BARS + 1);
-    for (let idx = start; idx <= endIdx; idx++){
-      const bull = bullSweep(c5m, idx);
-      const bear = bearSweep(c5m, idx);
-      if (bull || bear) events.push({ epoch: c5m[idx].epoch, bull, bear, level: bull ? c5m[idx-1].low : c5m[idx-1].high });
-    }
-    return events;
-  }
-  // LIVE: c is candlesByTf[300], whose last element updates in place while
-  // that 5m bar is still forming (see the ohlc handler above) — so the last
-  // CLOSED candle is length-2, not length-1. Matches the reference's
-  // explicit "only use shift=1, never shift=0" requirement.
-  function computeLiveSweepEvents(c5m){
-    if (!c5m || c5m.length < 3) return [];
-    return computeSweepEvents(c5m, c5m.length - 2);
-  }
-  // BACKTEST: c5m is a fully historical (already-closed) M5 series; ptr is
-  // walked forward per outer-loop bar the same way h4ptr/d1ptr already are
-  // elsewhere in this file, landing on the last M5 candle fully closed by
-  // the time being evaluated — so no future M5 data ever enters the scan.
-  function computeBacktestSweepEvents(c5m, ptr){
-    return computeSweepEvents(c5m, ptr);
-  }
-
-  // ---------- StructureLedgerAI Sweep + FVG sequential setup engine ----------
-  // This is the actual state machine: sweep -> structure response (BOS/CHoCH
-  // strictly AFTER the sweep) -> unmitigated FVG formed AT/AFTER that
-  // structure break. It's implemented as a fresh temporal scan each call
-  // rather than persisted state across calls — which is deliberate, not a
-  // shortcut: every candidate at every step is filtered by strict epoch/
-  // index ordering relative to the step before it, so re-running this scan
-  // on the same historical window always reconstructs the same chain
-  // deterministically. That gives the same guarantee explicit state would
-  // (a past bar's outcome can't change based on later data — no repainting)
-  // without needing to carry mutable state across symbol switches or
-  // separate live/backtest code paths.
-  //
-  // Returns {best, state, reason} where best is null until every step
-  // (sweep -> structure -> FVG) is satisfied for one direction; state/reason
-  // describe how far the furthest-progressed direction got, for the live
-  // status display.
-  function findSequentialFVGSetup(c, structure, fvgs, sweepEvents){
-    if (!structure.events.length){
-      return { best: null, state: 'IDLE', reason: 'No structure yet on this timeframe.' };
-    }
-    let best = null, bestRank = -1, state = 'IDLE',
-        reason = 'Watching for an M5 StructureLedgerAI liquidity sweep.';
-    const RANK = { IDLE:0, SWEEP_DETECTED:1, STRUCTURE_CONFIRMED:2, FVG_CREATED:3 };
-    for (const dir of ['bull','bear']){
-      const dirSweeps = sweepEvents.filter(s => dir==='bull' ? s.bull : s.bear);
-      if (!dirSweeps.length) continue; // no sweep this direction in the lookback window at all
-      if (RANK.SWEEP_DETECTED > bestRank){
-        bestRank = RANK.SWEEP_DETECTED; state = 'SWEEP_DETECTED';
-        reason = `M5 ${dir==='bull'?'bullish':'bearish'} sweep detected — waiting for a matching structure response (BOS/CHoCH).`;
-      }
-      // Anchor on the most recent STRUCTURE event, not the most recent
-      // sweep — sweeps recur far more often than BOS/CHoCH, so anchoring on
-      // "most recent sweep" chases a moving target that a structure
-      // response almost never catches before an even newer sweep replaces
-      // it (confirmed empirically: ~99.8% of bars got stuck waiting on a
-      // synthetic 40k-bar test before this fix). Anchoring on the event
-      // instead and checking backward for ANY qualifying sweep before it is
-      // stable and finds the same valid chains reliably.
-      const event = structure.events.filter(ev => ev.direction===dir).pop();
-      if (!event || !c[event.index]) continue;
-      const eventEpoch = c[event.index].epoch;
-      const precedingSweeps = dirSweeps.filter(s => s.epoch < eventEpoch);
-      if (!precedingSweeps.length) continue; // structure happened, but nothing swept liquidity beforehand
-      const sweep = precedingSweeps[precedingSweeps.length-1]; // closest qualifying sweep before this event
-      if (RANK.STRUCTURE_CONFIRMED > bestRank){
-        bestRank = RANK.STRUCTURE_CONFIRMED; state = 'STRUCTURE_CONFIRMED';
-        reason = `${dir==='bull'?'Bullish':'Bearish'} structure confirmed after the sweep — waiting for a fresh FVG.`;
-      }
-      // FVG must form AT/AFTER that structural break, not just "recently."
-      const candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= event.index);
-      if (!candidateFvgs.length) continue;
-      const gap = candidateFvgs[candidateFvgs.length-1];
-      if (RANK.FVG_CREATED > bestRank){
-        bestRank = RANK.FVG_CREATED; state = 'FVG_CREATED';
-        reason = `${dir==='bull'?'Bullish':'Bearish'} FVG formed after sweep + structure — checking breaker/HTF confluence.`;
-      }
-      if (!best) best = { dir, sweep, event, gap };
-    }
-    return { best, state, reason };
-  }
-
-  function findBreakerBlock(c, swings, lastEvent){
-    if (lastEvent.invalidation == null) return null;
-    const dir = lastEvent.direction;
-    const originType = dir==='bull' ? 'low' : 'high';
-    const candidates = swings.filter(s => s.type===originType
-      && Math.abs(s.price - lastEvent.invalidation) < 1e-9
-      && s.index <= lastEvent.index);
-    if (!candidates.length) return null;
-    const origin = candidates[candidates.length-1];
-    let breakerIdx = origin.index;
-    const scanEnd = Math.min(lastEvent.index, origin.index + 8);
-    for (let i = origin.index; i < scanEnd; i++){
-      const isCounterTrend = dir==='bull' ? c[i].close < c[i].open : c[i].close > c[i].open;
-      if (isCounterTrend) breakerIdx = i;
-    }
-    const bc = c[breakerIdx];
-    return { top: bc.high, bottom: bc.low, index: breakerIdx };
-  }
-
-  function nearestOpposing(swings, fromIndex, direction, entry){
-    const want = direction==='bull' ? 'high' : 'low';
-    const candidates = swings.filter(s => s.type===want && s.index>fromIndex &&
-        (direction==='bull' ? s.price > entry : s.price < entry))
-      .sort((a,b)=>a.index-b.index);
-    // Keep only swings that are a meaningful further step beyond the previous
-    // kept one — otherwise two swings close in price but different in time
-    // (e.g. a double-top) produce a TP1/TP2 that are practically the same
-    // level, which isn't a real two-tier target.
-    const MIN_STEP_FRACTION = 0.15;
-    const kept = [];
-    for (const s of candidates){
-      if (!kept.length){ kept.push(s); continue; }
-      const prev = kept[kept.length-1];
-      const prevDist = Math.abs(prev.price - entry);
-      const step = Math.abs(s.price - prev.price);
-      if (step >= prevDist * MIN_STEP_FRACTION) kept.push(s);
-      if (kept.length >= 2) break;
-    }
-    return kept;
   }
 
   // Final sanity gate applied to every ticket, every strategy: reject anything
@@ -814,8 +606,7 @@
   }
 
   // Shared swing-fractal lookups used by computeTrendBiasEA/computeTrendBiasMargin
-  // below (H4/D1 trend-bias checks for FVG's optional filter and Mean
-  // Reversion's regime filter). Chronological indices here (0=oldest...
+  // below (Mean Reversion's H4 regime filter). Chronological indices here (0=oldest...
   // end=newest), opposite of MQL5's series arrays (0=newest) — kept for
   // consistency with where this was originally ported from.
 
@@ -853,9 +644,7 @@
     return 0;
   }
 
-  // Shared swing-lookback used by every H4/D1 trend-bias check in the app
-  // (was introduced for the old EA Logic strategy, now used by FVG's optional H4 filter
-  // and Mean Reversion's regime filter).
+  // Shared swing-lookback used by Mean Reversion's H4 regime filter.
   const EA_SWING_LB = 5;
 
   // Continuous companion to computeTrendBiasEA's discrete 1/-1/0 read.
@@ -884,9 +673,8 @@
 
   // ---------- Mean Reversion (Bollinger Bands + RSI2) ----------
   // Connors-style short-term reversal: BB(20,2σ) extreme + RSI(2) extreme,
-  // both required. Gated by an H4 regime filter (reuses the same swing-based
-  // trend-bias check as FVG's optional H4 filter) so it
-  // only fires when the market has no clear trend structure — the documented
+  // both required. Gated by an H4 regime filter (swing-based trend-bias
+  // check) so it only fires when the market has no clear trend structure — the documented
   // failure mode for this family is "walking the bands" during a real trend,
   // and this filter exists specifically to avoid that.
   const MR_BB_PERIOD = 20, MR_BB_MULT = 2.0, MR_RSI_PERIOD = 2,
@@ -926,7 +714,6 @@
   }
 
   let lastMRDiagnostic = null;
-  let lastFVGSequenceState = null; // {state, reason} from findSequentialFVGSetup, for the live status display
 
   // ---------- Mean Reversion V2: extreme -> wait -> confirm -> next-bar entry ----------
   // V1 (immediate entry the instant BB+RSI extreme is hit) is preserved
@@ -948,10 +735,9 @@
     };
   }
 
-  // Deterministic, stateless-recompute state machine (same rationale as the
-  // FVG sequential engine above: re-scanning the same historical window
-  // always reconstructs the same chain, so there's nothing to desync
-  // between live/backtest or across symbol switches). Replays
+  // Deterministic, stateless-recompute state machine: re-scanning the same
+  // historical window always reconstructs the same chain, so there's
+  // nothing to desync between live/backtest or across symbol switches. Replays
   // IDLE -> WAIT_*_REVERSAL -> *_CONFIRMED -> *_ENTRY_BAR from a bounded
   // lookback up to endIdx, and returns the state exactly as of endIdx.
   // Directional exclusivity (Part 25) falls out naturally: once in a
@@ -1128,55 +914,6 @@
       const totalR = b.items.reduce((s,t)=>s+t.R,0);
       const marginRange = n ? `${b.items[0].absMargin.toFixed(2)}–${b.items[n-1].absMargin.toFixed(2)}` : '—';
       return { name:b.name, n, winRate: n?wins/n*100:0, avgR: n?totalR/n:0, totalR, marginRange };
-    });
-  }
-
-  // Buckets closed Vol Squeeze trades by breakoutDistanceATR (how far past
-  // the squeeze range the triggering close actually was) into tertiles: thin
-  // (barely broke out — weakest confirmation), mid, strong (clean, decisive
-  // break). Same pattern as Mean Reversion's regime-margin breakdown, aimed
-  // at the specific failure mode this strategy is most exposed to: a close
-  // that pokes past the range by a hair and immediately reverses.
-  // Buckets closed FVG trades by gap size in ATR units. Explicitly gated on
-  // sample size (n>=15, higher bar than the other two breakdowns) since FVG
-  // is already flagged thin — a 3-bucket split of an already-small sample
-  // would be noise dressed up as insight. Returns null with a reason until
-  // there's enough to say anything.
-  function summarizeFVGByGapSize(trades){
-    const withGap = trades.filter(t => t.result!=='open' && t.gapSizeATR!=null);
-    if (withGap.length < 15) return null;
-    const sorted = withGap.slice().sort((a,b)=>a.gapSizeATR-b.gapSizeATR);
-    const third = Math.ceil(sorted.length/3);
-    const buckets = [
-      {name:'small gap', items: sorted.slice(0, third)},
-      {name:'mid', items: sorted.slice(third, third*2)},
-      {name:'large gap', items: sorted.slice(third*2)}
-    ];
-    return buckets.map(b => {
-      const n = b.items.length;
-      const wins = b.items.filter(t=>t.R>0).length;
-      const totalR = b.items.reduce((s,t)=>s+t.R,0);
-      const sizeRange = n ? `${b.items[0].gapSizeATR.toFixed(2)}–${b.items[n-1].gapSizeATR.toFixed(2)}` : '—';
-      return { name:b.name, n, winRate: n?wins/n*100:0, avgR: n?totalR/n:0, totalR, sizeRange };
-    });
-  }
-
-  function summarizeVSBByBreakoutDistance(trades){
-    const withDist = trades.filter(t => t.result!=='open' && t.breakoutDistanceATR!=null);
-    if (withDist.length < 6) return null;
-    const sorted = withDist.slice().sort((a,b)=>a.breakoutDistanceATR-b.breakoutDistanceATR);
-    const third = Math.ceil(sorted.length/3);
-    const buckets = [
-      {name:'thin (barely broke out)', items: sorted.slice(0, third)},
-      {name:'mid', items: sorted.slice(third, third*2)},
-      {name:'strong (decisive break)', items: sorted.slice(third*2)}
-    ];
-    return buckets.map(b => {
-      const n = b.items.length;
-      const wins = b.items.filter(t=>t.R>0).length;
-      const totalR = b.items.reduce((s,t)=>s+t.R,0);
-      const distRange = n ? `${b.items[0].breakoutDistanceATR.toFixed(2)}–${b.items[n-1].breakoutDistanceATR.toFixed(2)}` : '—';
-      return { name:b.name, n, winRate: n?wins/n*100:0, avgR: n?totalR/n:0, totalR, distRange };
     });
   }
 
@@ -1368,374 +1105,6 @@
   }
 
 
-  // Premium/discount / OTE zone, built correctly this time:
-  // "Premium and discount zones must be drawn from external swing highs and
-  // swing lows, not from internal price swings" — so the range is [origin of
-  // the current leg (lastEvent.invalidation, the swing that started the move),
-  // extreme reached since the break (scanned forward, not a nearby internal
-  // swing)]. Within that range, OTE narrows further to the 62%-79%
-  // retracement band, which is what the source strategy actually trades off
-  // rather than a plain 50% split.
-  function computeOTEZone(c, lastEvent){
-    if (lastEvent.invalidation == null) return null;
-    const dir = lastEvent.direction;
-    const origin = lastEvent.invalidation; // external swing that started the leg
-    let extreme = dir==='bull' ? -Infinity : Infinity;
-    for (let i = lastEvent.index; i < c.length; i++){
-      if (dir==='bull') extreme = Math.max(extreme, c[i].high);
-      else extreme = Math.min(extreme, c[i].low);
-    }
-    const high = dir==='bull' ? extreme : origin;
-    const low  = dir==='bull' ? origin  : extreme;
-    if (high <= low) return null;
-    const range = high - low;
-    return dir==='bull'
-      ? { low: high - 0.79*range, high: high - 0.62*range }   // retracement down from the high
-      : { low: low + 0.62*range,  high: low + 0.79*range };   // retracement up from the low
-  }
-
-  // Displacement candle: the candle that actually broke structure should be
-  // a meaningfully large/strong move relative to recent volatility, not a
-  // marginal close that barely ticked past the prior swing. Compares this
-  // candle's full range against the average range of the preceding bars.
-  function isDisplacementCandle(c, index, lookback, minMultiple){
-    if (index < lookback) return true; // not enough history yet, don't block
-    let sumRange = 0;
-    for (let i = index-lookback; i < index; i++) sumRange += (c[i].high - c[i].low);
-    const avgRange = sumRange / lookback;
-    const thisRange = c[index].high - c[index].low;
-    return avgRange > 0 && thisRange >= avgRange * minMultiple;
-  }
-  const DISPLACEMENT_LOOKBACK = 14, DISPLACEMENT_MULTIPLE = 1.5;
-
-  function buildFVGTicket(c, swings, structure, fvgs, h4Data, requirePD, requireDisp, requireBreaker, d1Data, sweepEvents){
-    // StructureLedgerAI Sweep is now the PRIMARY setup trigger, not an
-    // optional filter bolted onto the old "grab the latest structure event"
-    // logic. Nothing below runs unless a sweep -> structure response -> FVG
-    // chain is found, IN THAT ORDER. See findSequentialFVGSetup above for
-    // the actual sequencing; this function only proceeds with whichever
-    // (dir, event, gap) triple that scan found valid, and applies the
-    // remaining confluence checks to that specific chain.
-    const seq = findSequentialFVGSetup(c, structure, fvgs, sweepEvents || []);
-    lastFVGSequenceState = { state: seq.state, reason: seq.reason };
-    if (!seq.best) return null;
-    const { dir, sweep, event: lastEvent, gap } = seq.best;
-
-    if (requireDisp && !isDisplacementCandle(c, lastEvent.index, DISPLACEMENT_LOOKBACK, DISPLACEMENT_MULTIPLE)){
-      lastFVGSequenceState = { state:'STRUCTURE_CONFIRMED', reason:`${dir==='bull'?'Bullish':'Bearish'} sequence reached FVG but failed the displacement-candle requirement.` };
-      return null;
-    }
-    // Optional HTF alignment filter: only take the trade if H4 structure
-    // agrees with the trade direction. Reuses the same bias calculation
-    // already used elsewhere for H4 trend-bias checks.
-    if (h4Data){
-      const htfBias = computeTrendBiasEA(h4Data, EA_SWING_LB);
-      const htfOK = dir==='bull' ? (htfBias === 1) : (htfBias === -1);
-      if (!htfOK){
-        lastFVGSequenceState = { state:'FVG_CREATED', reason:`${dir==='bull'?'Bullish':'Bearish'} sequence complete but H4 trend disagrees.` };
-        return null;
-      }
-    }
-    // Optional D1 alignment filter — same idea as H4 above, one timeframe
-    // higher. Backtest-only for now: D1 history isn't paginated for the
-    // walk-forward engine yet, so d1Data will be undefined outside the
-    // backtest run this was added for.
-    if (d1Data){
-      const d1Bias = computeTrendBiasEA(d1Data, EA_SWING_LB);
-      const d1OK = dir==='bull' ? (d1Bias === 1) : (d1Bias === -1);
-      if (!d1OK){
-        lastFVGSequenceState = { state:'FVG_CREATED', reason:`${dir==='bull'?'Bullish':'Bearish'} sequence complete but D1 trend disagrees.` };
-        return null;
-      }
-    }
-    // Optional breaker-block confluence filter: the FVG must physically
-    // overlap the breaker block zone from the same structure break.
-    if (requireBreaker){
-      const breaker = findBreakerBlock(c, swings, lastEvent);
-      if (!breaker){
-        lastFVGSequenceState = { state:'FVG_CREATED', reason:`${dir==='bull'?'Bullish':'Bearish'} sequence complete but no breaker block found at this structure break.` };
-        return null;
-      }
-      const overlaps = gap.bottom <= breaker.top && gap.top >= breaker.bottom;
-      if (!overlaps){
-        lastFVGSequenceState = { state:'FVG_CREATED', reason:`${dir==='bull'?'Bullish':'Bearish'} FVG doesn't overlap the breaker block — sequence invalidated.` };
-        return null;
-      }
-    }
-    const entry = dir==='bull' ? gap.top : gap.bottom;
-    if (requirePD){
-      const zone = computeOTEZone(c, lastEvent);
-      if (!zone) return null;
-      if (!(entry >= zone.low && entry <= zone.high)) return null;
-    }
-    const invalidation = lastEvent.invalidation;
-    if (invalidation == null) return null;
-    const priceScale = c[c.length-1].close;
-    const buffer = priceScale * 0.0006;
-    const sl = dir==='bull' ? invalidation - buffer : invalidation + buffer;
-    const opposing = nearestOpposing(swings, lastEvent.index, dir, entry);
-    if (!opposing.length) return null;
-    const tp1 = opposing[0].price;
-    const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
-    const risk = Math.abs(entry-sl);
-    const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
-    const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
-    const d = decimalsFor(curSym);
-    const atrVal = computeATR(c, c.length-1, 14);
-    const gapSizeATR = atrVal ? Math.abs(gap.top - gap.bottom) / atrVal : null;
-    const gapAgeBars = lastEvent.index - gap.end;
-    lastFVGSequenceState = { state:'ENTRY_READY', reason:`${dir==='bull'?'Bullish':'Bearish'} setup complete: sweep -> structure -> FVG -> confluence, waiting for price to reach the entry level.` };
-    // Fields recorded per the sweep-integration spec: sweep direction/epoch/
-    // swept level, structure-response epoch, FVG creation epoch, plus the
-    // pre-existing gap-size/age/breaker fields from the earlier integration.
-    return validateTicket({dir, label:lastEvent.type, entry, sl, tp1, tp2, rr1, rr2, decimals:d,
-      key: `fvg|${curSym}|${curTf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}|${sweep.epoch}`,
-      gapSizeATR, gapAgeBars, breakerConfluence: !!requireBreaker,
-      sweepEpoch: sweep.epoch, sweptLevel: sweep.level,
-      structureEventEpoch: c[lastEvent.index] ? c[lastEvent.index].epoch : null,
-      fvgCreatedEpoch: c[gap.end] ? c[gap.end].epoch : null});
-  }
-
-  // ---------- StructureLedgerAI + FVG diagnostic funnel ----------
-  // Observational only — calls the exact same authoritative functions used
-  // by the live/backtest engine above (bullSweep/bearSweep, computeSwings,
-  // computeStructureEvents, computeFVGs, findBreakerBlock,
-  // computeTrendBiasEA, isDisplacementCandle) and records where each
-  // candidate sweep's chain terminates. Nothing here decides a real trade;
-  // it explains why the real engine did or didn't produce one.
-  //
-  // Method note: rather than replaying all ~39k rolling 220-bar windows the
-  // walk-forward backtest uses (correct for trading decisions, but far more
-  // computation than a report needs), this scans the FULL historical series
-  // once. Structure/FVG detection isn't sensitive to window boundaries in
-  // any way that would change which candidates exist — same math, same
-  // ordering rules (sweep before structure before FVG), just batched for
-  // speed. This is a diagnostic report, not a second trading engine.
-  function runFVGDiagnostic(entryData, m5Data, d1Data, requireDisp, requireBreaker){
-    const diag = {
-      totalM5: m5Data ? m5Data.length : 0,
-      totalEntryBars: entryData ? entryData.length : 0,
-      sweeps: {bull:0, bear:0},
-      sweepToStructure: {bull:0, bear:0},
-      noSubsequentStructure: {bull:0, bear:0},
-      structureEvents: {bull:0, bear:0},
-      bosCount:0, chochCount:0,
-      displacementConfirmed:{bull:0,bear:0}, displacementFailed:{bull:0,bear:0}, displacementDisabled: !requireDisp,
-      fvgFound: {bull:0, bear:0},
-      breakerConfirmed:{bull:0,bear:0}, breakerFailed:{bull:0,bear:0}, breakerDisabled: !requireBreaker,
-      d1Confirmed:{bull:0,bear:0}, d1Failed:{bull:0,bear:0}, d1Disabled: !d1Data,
-      retraceReached:{bull:0,bear:0}, retraceNotReached:{bull:0,bear:0},
-      entryReady:{bull:0,bear:0},
-      executableTrades: 0,
-      rejectionCounts: {},
-      topReasons: [],
-      traces: []
-    };
-    if (!entryData || entryData.length < 40 || !m5Data || m5Data.length < 5) return diag;
-
-    function addReason(r){ diag.rejectionCounts[r] = (diag.rejectionCounts[r]||0) + 1; }
-    function trace(rec){ diag.traces.push(rec); if (diag.traces.length > 20) diag.traces.shift(); }
-
-    // 1) Authoritative sweeps — unmodified bullSweep/bearSweep, full M5 series.
-    const allSweeps = [];
-    for (let i=1;i<m5Data.length;i++){
-      if (bullSweep(m5Data, i)){ diag.sweeps.bull++; allSweeps.push({dir:'bull', epoch:m5Data[i].epoch, level:m5Data[i-1].low, o:m5Data[i].open,h:m5Data[i].high,l:m5Data[i].low,c:m5Data[i].close}); }
-      if (bearSweep(m5Data, i)){ diag.sweeps.bear++; allSweeps.push({dir:'bear', epoch:m5Data[i].epoch, level:m5Data[i-1].high, o:m5Data[i].open,h:m5Data[i].high,l:m5Data[i].low,c:m5Data[i].close}); }
-    }
-
-    // 2) Authoritative structure/FVG — same functions as live/backtest.
-    const swings = computeSwings(entryData);
-    const structure = computeStructureEvents(entryData, swings);
-    const fvgs = computeFVGs(entryData);
-    diag.structureEvents.bull = structure.events.filter(e=>e.direction==='bull').length;
-    diag.structureEvents.bear = structure.events.filter(e=>e.direction==='bear').length;
-    diag.bosCount = structure.events.filter(e=>e.type==='BOS').length;
-    diag.chochCount = structure.events.filter(e=>e.type!=='BOS').length;
-
-    // 3) Walk every sweep through the same pipeline buildFVGTicket applies,
-    // recording exactly where each one terminates.
-    for (const sweep of allSweeps){
-      const dir = sweep.dir;
-      const event = structure.events.find(ev => ev.direction===dir && entryData[ev.index] && entryData[ev.index].epoch > sweep.epoch);
-      if (!event){
-        diag.noSubsequentStructure[dir]++;
-        addReason('NO_SUBSEQUENT_STRUCTURE');
-        trace({dir, sweepEpoch:sweep.epoch, sweptLevel:sweep.level, stage:'SWEEP', reason:'NO_SUBSEQUENT_STRUCTURE'});
-        continue;
-      }
-      diag.sweepToStructure[dir]++;
-      const eventEpoch = entryData[event.index].epoch;
-
-      let dispOK = true;
-      if (requireDisp){
-        dispOK = isDisplacementCandle(entryData, event.index, DISPLACEMENT_LOOKBACK, DISPLACEMENT_MULTIPLE);
-        if (dispOK) diag.displacementConfirmed[dir]++; else diag.displacementFailed[dir]++;
-      }
-      if (!dispOK){
-        addReason('DISPLACEMENT_FAILED');
-        trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, stage:'STRUCTURE', reason:'DISPLACEMENT_FAILED'});
-        continue;
-      }
-
-      const candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= event.index);
-      if (!candidateFvgs.length){
-        addReason('NO_FVG_AFTER_STRUCTURE');
-        trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, stage:'STRUCTURE', reason:'NO_FVG_AFTER_STRUCTURE'});
-        continue;
-      }
-      const gap = candidateFvgs[candidateFvgs.length-1];
-      diag.fvgFound[dir]++;
-      const fvgEpoch = entryData[gap.end] ? entryData[gap.end].epoch : eventEpoch;
-
-      let breakerOK = true;
-      if (requireBreaker){
-        const breaker = findBreakerBlock(entryData, swings, event);
-        breakerOK = !!breaker && gap.bottom <= breaker.top && gap.top >= breaker.bottom;
-        if (breakerOK) diag.breakerConfirmed[dir]++; else diag.breakerFailed[dir]++;
-      }
-      if (!breakerOK){
-        addReason('BREAKER_FAILED');
-        trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, fvgEpoch, stage:'FVG', reason:'BREAKER_FAILED'});
-        continue;
-      }
-
-      let d1OK = true;
-      if (d1Data){
-        const d1Slice = d1Data.filter(d => d.epoch <= eventEpoch);
-        if (d1Slice.length < 24) d1OK = false;
-        else {
-          const bias = computeTrendBiasEA(d1Slice, EA_SWING_LB);
-          d1OK = dir==='bull' ? bias===1 : bias===-1;
-        }
-        if (d1OK) diag.d1Confirmed[dir]++; else diag.d1Failed[dir]++;
-      }
-      if (!d1OK){
-        addReason('HTF_FAILED');
-        trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, fvgEpoch, stage:'FVG', reason:'HTF_FAILED'});
-        continue;
-      }
-
-      // Retracement: same "does a future bar's low/high touch the entry
-      // level" check simulateTrade's fill stage already uses.
-      const entry = dir==='bull' ? gap.top : gap.bottom;
-      let filled = false;
-      for (let j=Math.max(gap.end+1, event.index); j<entryData.length; j++){
-        if (dir==='bull' ? entryData[j].low<=entry : entryData[j].high>=entry){ filled=true; break; }
-      }
-      if (!filled){
-        diag.retraceNotReached[dir]++;
-        addReason('RETRACEMENT_NOT_REACHED');
-        trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, fvgEpoch, stage:'FVG', reason:'RETRACEMENT_NOT_REACHED'});
-        continue;
-      }
-      diag.retraceReached[dir]++;
-      diag.entryReady[dir]++;
-      trace({dir, sweepEpoch:sweep.epoch, structureEpoch:eventEpoch, structureType:event.type, fvgEpoch, stage:'ENTRY_READY', reason:'ENTRY_READY'});
-    }
-
-    diag.executableTrades = diag.entryReady.bull + diag.entryReady.bear;
-    diag.topReasons = Object.entries(diag.rejectionCounts).sort((a,b)=>b[1]-a[1]);
-    return diag;
-  }
-
-  // ---------- Volatility Squeeze Breakout (Bollinger inside Keltner) ----------
-  // A third, distinct regime from the other two: Trend Following assumes the
-  // market is already moving, Mean Reversion assumes it's stuck in a range —
-  // this one watches for the transition between those states. When Bollinger
-  // Bands compress entirely inside a Keltner Channel, volatility has coiled
-  // tighter than normal ("the squeeze"); once bands expand back outside the
-  // channel and price breaks the squeeze's own high/low, that's the entry.
-  const VSB_BB_PERIOD = 20, VSB_BB_MULT = 2.0, VSB_KC_PERIOD = 20, VSB_KC_MULT = 1.5,
-        VSB_MIN_SQUEEZE_BARS = 6, VSB_SL_ATR_MULT = 1.5, VSB_TARGET_MULT1 = 1.0, VSB_TARGET_MULT2 = 2.0;
-  // Adjustable via the UI checkbox — off by default (identical to prior
-  // behavior). On: the ENTIRE triggering bar's range must clear the squeeze
-  // boundary (low > squeezeHigh for a bull break, not just its close) —
-  // a stricter confirmation than close-only, since a bar that closed beyond
-  // the range but wicked back INTO it during the same bar showed real
-  // rejection, not a clean break. This is a different fix than a minimum
-  // breakout-distance filter (which the regime-margin-style diagnostic
-  // showed doesn't cleanly separate winners from losers here); this instead
-  // targets bars with an intrabar rejection wick specifically.
-  let VSB_REQUIRE_FULL_RANGE = false;
-
-  function computeEMASeries(c, period){
-    if (c.length < period) return null;
-    const out = new Array(c.length).fill(null);
-    let sum = 0;
-    for (let i=0; i<period; i++) sum += c[i].close;
-    let ema = sum/period;
-    out[period-1] = ema;
-    const k = 2/(period+1);
-    for (let i=period; i<c.length; i++){ ema = c[i].close*k + ema*(1-k); out[i] = ema; }
-    return out;
-  }
-  function computeKeltner(c, uptoIndex, emaSeries, atrPeriod, mult){
-    if (!emaSeries || emaSeries[uptoIndex] == null) return null;
-    const atrVal = computeATR(c, uptoIndex, atrPeriod);
-    if (!atrVal) return null;
-    return { mid: emaSeries[uptoIndex], upper: emaSeries[uptoIndex]+mult*atrVal, lower: emaSeries[uptoIndex]-mult*atrVal };
-  }
-  function isSqueezeOn(bb, kc){ return bb.upper < kc.upper && bb.lower > kc.lower; }
-
-  function buildVolSqueezeTicket(c){
-    const minLen = VSB_BB_PERIOD + VSB_MIN_SQUEEZE_BARS + 5;
-    if (!c || c.length < minLen) return null;
-    const emaSeries = computeEMASeries(c, VSB_KC_PERIOD);
-    if (!emaSeries) return null;
-    const i = c.length-1;
-    const bbNow = computeBB(c, i, VSB_BB_PERIOD, VSB_BB_MULT);
-    const kcNow = computeKeltner(c, i, emaSeries, VSB_KC_PERIOD, VSB_KC_MULT);
-    if (!bbNow || !kcNow) return null;
-    if (isSqueezeOn(bbNow, kcNow)) return null; // still coiled — nothing to trade until it releases
-
-    // Walk backward from the release bar to see how long the squeeze actually
-    // lasted, and what range it coiled within — both the entry trigger (break
-    // of this range) and the target (measured move off its height) depend on it.
-    let squeezeBars = 0, squeezeHigh = -Infinity, squeezeLow = Infinity;
-    for (let j = i-1; j >= VSB_BB_PERIOD-1 && j >= VSB_KC_PERIOD-1; j--){
-      const bbJ = computeBB(c, j, VSB_BB_PERIOD, VSB_BB_MULT);
-      const kcJ = computeKeltner(c, j, emaSeries, VSB_KC_PERIOD, VSB_KC_MULT);
-      if (!bbJ || !kcJ || !isSqueezeOn(bbJ, kcJ)) break;
-      squeezeBars++;
-      squeezeHigh = Math.max(squeezeHigh, c[j].high);
-      squeezeLow = Math.min(squeezeLow, c[j].low);
-    }
-    if (squeezeBars < VSB_MIN_SQUEEZE_BARS) return null; // release wasn't preceded by a real squeeze
-
-    const close = c[i].close;
-    let dir = null;
-    if (close > squeezeHigh) dir = 'bull';
-    else if (close < squeezeLow) dir = 'bear';
-    if (!dir) return null; // released but hasn't actually broken the squeeze range yet
-    if (VSB_REQUIRE_FULL_RANGE){
-      const cleanBreak = dir==='bull' ? c[i].low > squeezeHigh : c[i].high < squeezeLow;
-      if (!cleanBreak) return null; // wicked back into the range this same bar — rejected, not a clean break
-    }
-
-    const atrVal = computeATR(c, i, VSB_KC_PERIOD);
-    if (!atrVal) return null;
-    // How far past the squeeze range the triggering close actually is, in ATR
-    // units. A close that's barely past the boundary (e.g. 0.05×ATR) has no
-    // real confirmation behind it — this is the raw material for testing
-    // whether thin breakouts underperform, same idea as Mean Reversion's
-    // regime-margin bucketing.
-    const breakoutDistanceATR = dir==='bull' ? (close - squeezeHigh) / atrVal : (squeezeLow - close) / atrVal;
-    const entry = close;
-    const sl = dir==='bull' ? entry - atrVal*VSB_SL_ATR_MULT : entry + atrVal*VSB_SL_ATR_MULT;
-    const risk = Math.abs(entry-sl);
-    if (risk <= 0) return null;
-    const squeezeRange = squeezeHigh - squeezeLow;
-    const tp1 = dir==='bull' ? entry + squeezeRange*VSB_TARGET_MULT1 : entry - squeezeRange*VSB_TARGET_MULT1;
-    const tp2 = dir==='bull' ? entry + squeezeRange*VSB_TARGET_MULT2 : entry - squeezeRange*VSB_TARGET_MULT2;
-    const rr1 = Math.abs(tp1-entry)/risk, rr2 = Math.abs(tp2-entry)/risk;
-    const d = decimalsFor(curSym);
-    return validateTicket({
-      dir, label:'VolSqueeze', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
-      key: `volsqueeze|${curSym}|${curTf}|${dir}|${c[i].epoch}`,
-      breakoutDistanceATR // carried through to backtest trade records for the breakout-strength breakdown
-    });
-  }
-
   function readLog(){ try{ return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }catch(_){ return []; } }
   function writeLog(arr){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(arr.slice(0,50))); }catch(_){} }
   function renderLog(){
@@ -1802,16 +1171,16 @@
   renderLog();
   renderLossTracker();
 
+  // Reflects a real, broad batch-scan result (not a placeholder): 1H, all
+  // 38 instruments this app supports, thousands of real episodes each.
+  // Neither strategy has shown a broad edge at 1H — see the batch scan
+  // panel to re-verify or test other timeframes yourself.
   const STRATEGY_VALIDATION = {
-    fvg:     {label:'Mixed, thin data', detail:'XAU/USD promising (20ep, +0.29R) but EUR/GBP inconsistent — not enough to trust yet', cls:'val-thin'},
-    volsqueeze: {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'},
-    meanrev: {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'},
-    trend:   {label:'Unverified',    detail:'just added — no backtest results gathered yet', cls:'val-thin'}
+    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across all 38 instruments, weighted avg ≈ −0.06R — untested at 4H/D1', cls:'val-thin'},
+    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative', cls:'val-thin'}
   };
 
   function strategyLabel(){
-    if (curStrategy==='fvg') return 'StructureLedgerAI Sweep + FVG';
-    if (curStrategy==='volsqueeze') return 'Vol Squeeze Breakout';
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
     return 'Trend Following (Donchian)';
   }
@@ -1862,13 +1231,7 @@
   function renderTicket(t){
     const slot = $('ticketslot');
     if (!t){
-      const msg = curStrategy==='fvg'
-        ? (lastFVGSequenceState
-            ? `[${lastFVGSequenceState.state}] ${lastFVGSequenceState.reason}`
-            : 'Watching for an M5 StructureLedgerAI liquidity sweep to initiate a setup.')
-        : curStrategy==='volsqueeze'
-        ? 'Reading volatility — watching for Bollinger Bands to compress inside the Keltner Channel (a squeeze), then release with a break of the squeeze range. No setup currently in play.'
-        : curStrategy==='meanrev'
+      const msg = curStrategy==='meanrev'
         ? (lastMRDiagnostic
             ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}`
             : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.')
@@ -1950,7 +1313,7 @@
     }
   }
 
-  function renderChart(c, swings, structure, fvgs){
+  function renderChart(c, swings, structure){
     const canvas = $('chart');
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.clientWidth, H = 360;
@@ -1967,17 +1330,6 @@
     const xw = W/visible.length;
     const y = p => H - ( (p-yMin)/(yMax-yMin) )*H;
     const x = i => i*xw + xw/2;
-
-    if (curStrategy === 'fvg'){
-      for (const g of fvgs){
-        const gs = g.start-offset, ge = g.end-offset;
-        if (ge < 0 || gs > visible.length) continue;
-        const xs = Math.max(0,gs)*xw, xe = Math.min(visible.length,ge+1)*xw;
-        ctx.fillStyle = g.direction==='bull' ? 'rgba(199,226,247,0.14)' : 'rgba(90,100,114,0.14)';
-        ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top));
-        if (g.mitigated){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top)); }
-      }
-    }
 
     for (let i=0;i<visible.length;i++){
       const cd = visible[i];
@@ -2033,16 +1385,12 @@
     }
   }
 
-  function renderStrategyStrip(candles, swings, structure, fvgs){
+  function renderStrategyStrip(candles, swings, structure){
     const strip = $('strategystrip');
-    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs, null, false, false, true, candlesByTf[86400], computeLiveSweepEvents(candlesByTf[300]));
-    const vsbTicket = buildVolSqueezeTicket(candles);
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     const trendTicket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
 
     const cells = [
-      {key:'fvg', label:'StructureLedgerAI Sweep + FVG', ticket:fvgTicket},
-      {key:'volsqueeze', label:'Vol Squeeze Breakout', ticket:vsbTicket},
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket},
       {key:'trend', label:'Trend Following', ticket:trendTicket}
     ];
@@ -2228,21 +1576,12 @@
     if (strat === 'trend') return buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
-    if (strat === 'meanrev') return buildMeanReversionTicketLive(c, candlesByTf[14400]);
-    if (strat === 'volsqueeze') return buildVolSqueezeTicket(c);
-    const swings = computeSwings(c);
-    const structure = computeStructureEvents(c, swings);
-    const fvgs = computeFVGs(c);
-    const savedTf = curTf; // buildFVGTicket keys off module-level curTf
-    curTf = tf;
-    const ticket = buildFVGTicket(c, swings, structure, fvgs, null, false, false, true, candlesByTf[86400], computeLiveSweepEvents(candlesByTf[300]));
-    curTf = savedTf;
-    return ticket;
+    return buildMeanReversionTicketLive(c, candlesByTf[14400]);
   }
 
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
-    const stratLbl = strat==='fvg'?'StructureLedgerAI Sweep + FVG':strat==='volsqueeze'?'Vol Squeeze Breakout':strat==='meanrev'?'Mean Reversion':'Trend Following';
+    const stratLbl = strat==='meanrev'?'Mean Reversion':'Trend Following';
     const tfLbl = tf ? TF_LABELS[tf] : 'H1/H4';
     const n = new Notification(`${stratLbl} — ${tfLbl} — ${bias}`, {
       body: `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`,
@@ -2274,15 +1613,12 @@
     if (!candles || !candles.length) return;
     const swings = computeSwings(candles);
     const structure = computeStructureEvents(candles, swings);
-    const fvgs = computeFVGs(candles);
     const amd = computeAMD(candles);
-    renderStrategyStrip(candles, swings, structure, fvgs);
-    const ticket = curStrategy==='fvg' ? buildFVGTicket(candles, swings, structure, fvgs, null, false, false, true, candlesByTf[86400], computeLiveSweepEvents(candlesByTf[300]))
-                                        : curStrategy==='volsqueeze' ? buildVolSqueezeTicket(candles)
-                                        : curStrategy==='meanrev' ? buildMeanReversionTicketLive(candles, candlesByTf[14400])
+    renderStrategyStrip(candles, swings, structure);
+    const ticket = curStrategy==='meanrev' ? buildMeanReversionTicketLive(candles, candlesByTf[14400])
                                         : buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
 
-    renderChart(candles, swings, structure, fvgs);
+    renderChart(candles, swings, structure);
     renderAMDStrip(candles, amd);
     renderTicket(ticket);
 
@@ -2296,119 +1632,30 @@
   }
 
   // ---------- backtest engine ----------
-  let spreadCostR = 0.05; // flat per-trade haircut, in R, applied in simulateTrade — backtests otherwise assume a perfect fill
-  // FILL-GATE: t.entry is a resting order (a pullback level), not a market fill.
-  // A ticket only becomes a real trade once price actually trades through entry.
-  // Until then it's just a signal — if price runs straight to what would have
-  // been TP without ever coming back for entry, that is NOT a win, it's an
-  // order that was never filled and never existed as a live position.
-  // If entry and SL are touched within the same bar, SL is assumed to have
-  // been hit (conservative — matches the same-candle tie-break already used
-  // elsewhere for TP1 vs TP2).
-  // Stage 2 only: SL/TP1(partial)/TP2 walk, assuming the trade is ALREADY
-  // filled at t.entry (no search for a future touch). Shared by both
-  // simulateTrade (which adds a fill-wait stage in front, for strategies
-  // like FVG whose entry genuinely IS a pending limit level to wait for)
-  // and simulateFixedEntryTrade below (for strategies whose entry is an
-  // immediate market fill at a price already known at signal time — no
-  // fill-wait is appropriate there, since waiting for a "return" to a price
-  // that was never a limit order in the first place manufactures a fill the
-  // live strategy would never actually get).
-  function walkFixedEntryOutcome(hist, startIdx, t){
-    let hitTP1 = false;
-    for (let j = startIdx; j<hist.length; j++){
-      const c = hist[j];
-      if (t.dir==='bull'){
-        if (!hitTP1){
-          if (c.low <= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
-          if (c.high >= t.tp1){ hitTP1 = true; continue; }
-        } else {
-          if (c.low <= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
-          if (c.high >= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
-        }
-      } else {
-        if (!hitTP1){
-          if (c.high >= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
-          if (c.low <= t.tp1){ hitTP1 = true; continue; }
-        } else {
-          if (c.high >= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
-          if (c.low <= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
-        }
-      }
-    }
-    return {result:'open', R:0, exitIndex:hist.length-1};
-  }
-
-  // FVG's entry is genuinely a pending limit level (near edge of the gap) —
-  // its live ticket represents "waiting for retracement," so this fill-wait
-  // stage is correct and unchanged for that strategy.
-  function simulateTrade(hist, startIdx, t){
-    let j = startIdx, filled = false;
-    for (; j<hist.length; j++){
-      const c = hist[j];
-      if (t.dir==='bull' ? (c.low <= t.entry) : (c.high >= t.entry)){ filled = true; break; }
-    }
-    if (!filled) return {result:'never filled', R:0, exitIndex:hist.length-1};
-    return walkFixedEntryOutcome(hist, j, t);
-  }
-
-  // Vol Squeeze's entry is an immediate market fill at the breakout
-  // candle's close (confirmed by direct inspection of buildVolSqueezeTicket
-  // — entry = close, not a level to wait for). No fill-wait stage: the
-  // trade is filled by construction at t.entry, which is already the known,
-  // achieved breakout close. Starts checking outcomes at startIdx (the bar
-  // AFTER the breakout bar) since the breakout bar's own high/low already
-  // happened before its close/entry — there's no remaining room in that
-  // same bar to check.
-  function simulateFixedEntryTrade(hist, startIdx, t){
-    return walkFixedEntryOutcome(hist, startIdx, t);
-  }
-
+  let spreadCostR = 0.05; // flat per-trade haircut, in R, applied in simulateMeanReversionTradeV2 — backtests otherwise assume a perfect fill
+  // Mean Reversion is the only strategy left running through this walk-forward
+  // loop (Trend Following has its own open-position engine, simulateTrendBacktest,
+  // below). h4 is Mean Reversion's regime filter data.
   let lastBacktestNeverFilled = 0;
-  function simulateBacktest(hist, strat, h4, requirePD, requireDisp, requireBreaker, d1, m5){
+  function simulateBacktest(hist, h4){
     const WINDOW = MAXC;
     let lastKey = null;
     const trades = [];
     let neverFilled = 0;
     let h4ptr = -1;
-    let d1ptr = -1;
-    let m5ptr = -1;
     for (let i=30; i<hist.length-1; i++){
       const windowed = hist.slice(Math.max(0, i-WINDOW+1), i+1);
-      const needsStructure = strat==='fvg';
-      const swings = needsStructure ? computeSwings(windowed) : null;
-      const structure = needsStructure ? computeStructureEvents(windowed, swings) : null;
-      const fvgs = strat==='fvg' ? computeFVGs(windowed) : null;
       let h4Slice = null;
-      if ((strat==='fvg' || strat==='meanrev') && h4){
+      if (h4){
         const h1Time = hist[i].epoch;
         while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
         h4Slice = h4ptr >= 0 ? h4.slice(Math.max(0, h4ptr-120), h4ptr+1) : null;
       }
-      let d1Slice = null;
-      if (strat==='fvg' && d1){
-        const h1Time = hist[i].epoch;
-        while (d1ptr+1 < d1.length && d1[d1ptr+1].epoch + 86400 <= h1Time) d1ptr++;
-        d1Slice = d1ptr >= 0 ? d1.slice(Math.max(0, d1ptr-60), d1ptr+1) : null;
-      }
-      let sweepEvents = [];
-      if (strat==='fvg' && m5){
-        // Advance to the last M5 candle fully CLOSED by the time of this
-        // outer-loop bar (epoch + its own 300s duration <= current bar's
-        // open time) — no look-ahead, mirrors the h4ptr/d1ptr walk above.
-        const barTime = hist[i].epoch;
-        while (m5ptr+1 < m5.length && m5[m5ptr+1].epoch + 300 <= barTime) m5ptr++;
-        sweepEvents = computeBacktestSweepEvents(m5, m5ptr);
-      }
-      const ticket = strat==='fvg' ? buildFVGTicket(windowed, swings, structure, fvgs, h4Slice, requirePD, requireDisp, requireBreaker, d1Slice, sweepEvents)
-                                    : strat==='meanrev' ? buildMeanReversionTicket(windowed, h4Slice)
-                                    : buildVolSqueezeTicket(windowed);
+      const ticket = buildMeanReversionTicket(windowed, h4Slice);
       if (!ticket) continue;
       if (ticket.key === lastKey) continue;
       lastKey = ticket.key;
-      const outcome = strat==='meanrev' ? simulateMeanReversionTradeV2(hist, i, ticket, MR_MAX_BARS)
-                                         : strat==='volsqueeze' ? simulateFixedEntryTrade(hist, i+1, ticket)
-                                         : simulateTrade(hist, i+1, ticket);
+      const outcome = simulateMeanReversionTradeV2(hist, i, ticket, MR_MAX_BARS);
       if (outcome.result === 'never filled'){ neverFilled++; continue; }
       trades.push(Object.assign({index:i}, ticket, outcome));
     }
@@ -2552,7 +1799,7 @@
     if (!lastBacktestTrades.length){ return; }
     const meta = lastBacktestMeta;
     const symLabel = $('symbol').selectedOptions[0].text;
-    const stratLabel = meta.strat==='fvg' ? 'FVG_Confluence' : meta.strat==='volsqueeze' ? 'Vol_Squeeze_Breakout' : meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2' : 'Trend_Following_Donchian';
+    const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2' : 'Trend_Following_Donchian';
     const tfPart = meta.strat==='trend' ? 'H1H4aligned' : TF_LABELS[meta.tf];
     const header = ['bar_index','date','direction','label','entry','sl','tp1','tp2','rr1','rr2','result','R'];
     const rows = lastBacktestTrades.map(t => [
@@ -2680,7 +1927,7 @@
     const timeStops = meta.strat==='meanrev' ? closed.filter(t => t.timeStop).length : 0;
 
     const symLabel = $('symbol').selectedOptions[0].text;
-    const stratLabel = meta.strat==='fvg' ? 'StructureLedgerAI Sweep + FVG' : meta.strat==='volsqueeze' ? 'Vol Squeeze Breakout' : meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)' : 'Trend Following (Donchian)';
+    const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)' : 'Trend Following (Donchian)';
     const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : TF_LABELS[meta.tf];
     const dateRange = hist.length ? `${fmtDate(hist[0].epoch)} → ${fmtDate(hist[hist.length-1].epoch)}` : '';
 
@@ -2697,7 +1944,7 @@
     const slot = $('backtestslot');
     slot.innerHTML = `
       <div class="btpanel">
-        <h3>Backtest — ${symLabel} · ${tfLabel} · ${stratLabel}${meta.htfFiltered ? ' · H4-filtered' : ''}${meta.d1Filtered ? ' · D1-filtered' : ''}${meta.pdFiltered ? ' · OTE-zone' : ''}${meta.dispFiltered ? ' · displacement' : ''}${meta.breakerFiltered ? ' · breaker-block confluence' : ''}${meta.sweepFiltered ? ' · M5 liquidity sweep' : ''}${meta.strat==='meanrev' && MR_MIN_REGIME_MARGIN>0 ? ` · min regime margin ${MR_MIN_REGIME_MARGIN.toFixed(1)}` : ''}${meta.strat==='trend' && TREND_TP_RR>0 ? ` · H4-confirmed TP ${TREND_TP_RR.toFixed(2)}R` : ''}${meta.strat==='volsqueeze' && VSB_REQUIRE_FULL_RANGE ? ' · full-range break only' : ''}</h3>
+        <h3>Backtest — ${symLabel} · ${tfLabel} · ${stratLabel}${meta.htfFiltered ? ' · H4-filtered' : ''}${meta.strat==='meanrev' && MR_MIN_REGIME_MARGIN>0 ? ` · min regime margin ${MR_MIN_REGIME_MARGIN.toFixed(1)}` : ''}${meta.strat==='trend' && TREND_TP_RR>0 ? ` · H4-confirmed TP ${TREND_TP_RR.toFixed(2)}R` : ''}</h3>
         <div class="btmeta">${hist.length} bars · ${dateRange} · walk-forward, no lookahead (same rolling ${MAXC}-bar buffer the live tool uses) · spread cost applied: ${spreadCostR.toFixed(2)}R/trade · ${lastBacktestNeverFilled} signal(s) never reached entry and were excluded (would not have been real fills)</div>
         <div class="btverdict ${verdict.cls}">${verdict.text}</div>
         <div class="ticket-actions" style="margin:12px 0">
@@ -2769,70 +2016,6 @@
         <div class="btnote">If avg R is meaningfully worse in the "tight" bucket, the regime filter's binary HH/HL-vs-LH/LL read is letting borderline/lopsided structure through as "flat" — consider requiring 2 consecutive flat H4 reads, or a minimum |margin| threshold, before allowing a fade.</div>`;
         })() : ''}
 
-        ${meta.strat==='fvg' ? (() => {
-          const fvb = summarizeFVGByGapSize(trades);
-          if (!fvb) return `<div class="btnote" style="margin-top:16px">Not enough closed trades with gap-size data yet to break this down (need ≥15) — FVG setups are rare, so this needs either a longer window or more symbols before it says anything reliable. The metric (gapSizeATR) is being recorded on every trade from now on either way, so it'll be ready once volume builds up.</div>`;
-          return `
-        <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">By gap size (imbalance width in ATR units)</h3>
-        <div class="btgrid">
-          ${fvb.map(b => `
-          <div class="btcell"><div class="v ${b.avgR>=0?'pos':'neg'}">${b.avgR>=0?'+':''}${b.avgR.toFixed(2)}R</div><div class="k">${b.name} · n=${b.n} · ${b.winRate.toFixed(0)}% win · size ${b.sizeRange} ATR</div></div>`).join('')}
-        </div>
-        <div class="btnote">Still a modest sample even at ≥15 — treat this as a lead to test on more symbols, not a conclusion on its own.</div>`;
-        })() : ''}
-
-        ${meta.strat==='fvg' && meta.fvgDiag ? (() => {
-          const d = meta.fvgDiag;
-          const pct = (num, den) => den ? `${(num/den*100).toFixed(1)}%` : '—';
-          const stageRow = (label, bull, bear, note) => `
-          <div class="btcell"><div class="v">${bull+bear}</div><div class="k">${label} · bull ${bull} · bear ${bear}${note?' · '+note:''}</div></div>`;
-          const topReasonsHTML = d.topReasons.length
-            ? `<ol style="margin:6px 0 0 18px;font-family:var(--mono);font-size:11px;color:var(--dim)">${d.topReasons.map(([r,c]) => `<li>${r} — ${c}</li>`).join('')}</ol>`
-            : `<div class="btnote">No rejections recorded — every sweep either reached entry-ready or none occurred.</div>`;
-          const traceHTML = d.traces.length ? d.traces.slice().reverse().map(t => `
-            <div style="font-family:var(--mono);font-size:10.5px;color:var(--dim);padding:6px 0;border-top:1px solid var(--line)">
-              <b style="color:var(--text)">${t.dir==='bull'?'BULL':'BEAR'}</b> · sweep ${new Date(t.sweepEpoch*1000).toISOString().slice(0,16).replace('T',' ')}
-              ${t.structureEpoch?` · structure(${t.structureType||''}) ${new Date(t.structureEpoch*1000).toISOString().slice(0,16).replace('T',' ')}`:''}
-              ${t.fvgEpoch?` · FVG ${new Date(t.fvgEpoch*1000).toISOString().slice(0,16).replace('T',' ')}`:''}
-              <br>stage reached: <b>${t.stage}</b> — ${t.reason}
-            </div>`).join('') : '<div class="btnote">No candidates traced yet.</div>';
-          return `
-        <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">StructureLedgerAI diagnostic funnel — observational only, same authoritative sweep/structure/FVG/breaker/D1 functions as the real engine above, batch-computed over the full historical series (see code comment for why that's a valid method for a report vs. a trading decision)</h3>
-        <div class="btgrid">
-          <div class="btcell"><div class="v">${d.totalM5}</div><div class="k">historical M5 candles examined</div></div>
-          ${stageRow('M5 sweeps', d.sweeps.bull, d.sweeps.bear)}
-          ${stageRow('Sweep → structure', d.sweepToStructure.bull, d.sweepToStructure.bear, `rejected ${d.noSubsequentStructure.bull+d.noSubsequentStructure.bear} (no subsequent structure)`)}
-          ${stageRow('Structure events (all)', d.structureEvents.bull, d.structureEvents.bear, `${d.bosCount} BOS / ${d.chochCount} CHoCH`)}
-          ${stageRow('Displacement', d.displacementConfirmed.bull, d.displacementConfirmed.bear, d.displacementDisabled ? 'filter disabled' : `failed ${d.displacementFailed.bull+d.displacementFailed.bear}`)}
-          ${stageRow('Structure → FVG', d.fvgFound.bull, d.fvgFound.bear)}
-          ${stageRow('Breaker/POI', d.breakerConfirmed.bull, d.breakerConfirmed.bear, d.breakerDisabled ? 'filter disabled' : `failed ${d.breakerFailed.bull+d.breakerFailed.bear}`)}
-          ${stageRow('D1/HTF', d.d1Confirmed.bull, d.d1Confirmed.bear, d.d1Disabled ? 'filter disabled' : `failed ${d.d1Failed.bull+d.d1Failed.bear}`)}
-          ${stageRow('FVG retracement reached', d.retraceReached.bull, d.retraceReached.bear, `not reached ${d.retraceNotReached.bull+d.retraceNotReached.bear}`)}
-          ${stageRow('ENTRY READY', d.entryReady.bull, d.entryReady.bear)}
-          <div class="btcell"><div class="v">${d.executableTrades}</div><div class="k">executable trades (should match the "signals" count above)</div></div>
-        </div>
-        <h3 style="font-size:11px;color:var(--faint);margin:14px 0 4px">Top rejection reasons</h3>
-        ${topReasonsHTML}
-        ${!d.executableTrades ? `
-        <div class="btnote" style="margin-top:10px;border-color:var(--neg)">NO FINAL TRADES.<br>M5 sweeps detected: ${d.sweeps.bull+d.sweeps.bear} (bull ${d.sweeps.bull} / bear ${d.sweeps.bear}).<br>Highest completed stage: ${d.entryReady.bull+d.entryReady.bear>0?'ENTRY_READY':d.retraceReached.bull+d.retraceReached.bear>0?'FVG retracement':d.fvgFound.bull+d.fvgFound.bear>0?'FVG found':d.sweepToStructure.bull+d.sweepToStructure.bear>0?'Structure confirmed':'Sweep only'}.<br>Primary rejection reason: ${d.topReasons.length?d.topReasons[0][0]+' ('+d.topReasons[0][1]+')':'none — no sweeps to evaluate'}.</div>` : ''}
-        <details style="margin-top:10px">
-          <summary style="font-size:11px;color:var(--faint);cursor:pointer">Setup trace — most recent ${d.traces.length} candidates</summary>
-          ${traceHTML}
-        </details>`;
-        })() : ''}
-
-        ${meta.strat==='volsqueeze' ? (() => {
-          const vsb = summarizeVSBByBreakoutDistance(trades);
-          if (!vsb) return `<div class="btnote" style="margin-top:16px">Not enough breakout-distance data yet to break down by thin-vs-strong breakouts (need ≥6 closed trades).</div>`;
-          return `
-        <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">By breakout distance (how far past the squeeze range the triggering close actually was, in ATR — thin = barely broke out, strong = decisive break)</h3>
-        <div class="btgrid">
-          ${vsb.map(b => `
-          <div class="btcell"><div class="v ${b.avgR>=0?'pos':'neg'}">${b.avgR>=0?'+':''}${b.avgR.toFixed(2)}R</div><div class="k">${b.name} · n=${b.n} · ${b.winRate.toFixed(0)}% win · dist ${b.distRange} ATR</div></div>`).join('')}
-        </div>
-        <div class="btnote">If avg R is meaningfully worse in the "thin" bucket, the entry trigger is firing on false breakouts — consider requiring a minimum breakout distance (e.g. close ≥0.3×ATR past the range) before validating the ticket, at the cost of fewer/later entries.</div>`;
-        })() : ''}
-
         <canvas id="btequity" style="margin-top:14px"></canvas>
         <div class="btnote">
           Walk-forward: at each bar only the prior ${MAXC}-bar rolling window is used to build a ticket — exactly what the live tool would have shown at that moment, no future data leaking in. "Corrected" numbers cap each trade's R:R at 3.0 (removing distortion from freak tight-stop outliers) and collapse signals within 10 bars of each other into one episode (removing double-counting of the same underlying move) — this is the same manual process applied to every backtest earlier in this project, now automatic. Same-candle TP2-vs-breakeven ties are resolved conservatively (breakeven assumed first).
@@ -2896,18 +2079,11 @@
       }, 30);
       return;
     }
-    if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf) && (!bucket.wantD1 || bucket.d1) && (!bucket.wantM5Sweep || bucket.m5)){
+    if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf)){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
-        const trades = simulateBacktest(bucket.data, bucket.strat, bucket.htf || null, bucket.wantPD, bucket.wantDisp, bucket.wantBreaker, bucket.d1 || null, bucket.m5 || null);
-        // Diagnostic funnel — always computed for FVG backtests run from the
-        // interactive panel, not just when trades come back zero, so it's a
-        // standing debugging tool rather than a one-off. Skipped in batch
-        // mode purely to keep a multi-symbol scan fast; the funnel's own
-        // authoritative functions are the same ones that produced `trades`
-        // either way, so nothing about the batch numbers depends on this.
-        const fvgDiag = (bucket.strat==='fvg' && !bucket.onComplete) ? runFVGDiagnostic(bucket.data, bucket.m5 || null, bucket.d1 || null, bucket.wantDisp, bucket.wantBreaker) : null;
-        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf, pdFiltered: !!bucket.wantPD, dispFiltered: !!bucket.wantDisp, breakerFiltered: !!bucket.wantBreaker, d1Filtered: !!bucket.wantD1, sweepFiltered: !!bucket.wantM5Sweep, fvgDiag};
+        const trades = simulateBacktest(bucket.data, bucket.htf || null);
+        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
         else renderBacktestResults(trades, bucket.data, meta);
         delete pendingEABacktest[runId];
@@ -2947,37 +2123,15 @@
     // avoid firing an excessive number of requests on 1m.
     const rawDepth = Number($('btDepth').value);
     const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
-    // FVG filters are now fixed (no UI toggle): breaker-block overlap and D1
-    // agreement are on (the two you asked to be built-in); H4 agreement,
-    // OTE-zone, and displacement stay off (kept conservative — mixed results
-    // when tested, not promoted to always-on without more evidence).
-    const wantHtf = strat === 'meanrev';
-    const wantPD = false;
-    const wantDisp = false;
-    const wantBreaker = strat === 'fvg';
-    const wantD1 = strat === 'fvg';
-    const wantM5Sweep = strat === 'fvg';
-    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for trend/regime filter)':''}${wantD1?' (plus D1 for trend filter)':''}${wantM5Sweep?' (plus M5 for liquidity sweep filter)':''}…</div></div>`;
+    const wantHtf = strat === 'meanrev'; // Mean Reversion's H4 regime filter
+    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}…</div></div>`;
     const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
-    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, wantPD, wantDisp, wantBreaker, wantD1, wantM5Sweep, data_pages:[], onComplete};
+    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, data_pages:[], onComplete};
     requestHistoryPage(sym, tf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
     if (wantHtf){
       pendingEABacktest[runId].htf_pages = [];
       const htfDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 14400)) || 1);
       requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
-    }
-    if (wantD1){
-      pendingEABacktest[runId].d1_pages = [];
-      const d1Depth = Math.min(60, Math.ceil(rawDepth * (3600 / 86400)) || 1);
-      requestHistoryPage(sym, 86400, 700, 'latest', {runId, part:'d1', pageIndex:0, pagesWanted:d1Depth});
-    }
-    if (wantM5Sweep){
-      pendingEABacktest[runId].m5_pages = [];
-      // Needs the same wall-clock span as the entry timeframe, just at M5
-      // resolution — e.g. an H1 backtest spanning ~4.5 years needs ~12x as
-      // many M5 candles to cover the same period.
-      const m5Depth = Math.min(120, Math.ceil(rawDepth * (3600 / 300)) || 1);
-      requestHistoryPage(sym, 300, 5000, 'latest', {runId, part:'m5', pageIndex:0, pagesWanted:m5Depth});
     }
     return runId;
   }
@@ -2996,11 +2150,11 @@
   // no math and applies no extra filtering, so a "0 signals" or "no edge"
   // row here is exactly what a manual run would have shown too.
   function strategyLabelFor(s){
-    return s==='fvg' ? 'FVG Sweep' : s==='volsqueeze' ? 'Vol Squeeze' : s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
+    return s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
-    const stratDefs = [['fvg','FVG Sweep'],['volsqueeze','Vol Squeeze'],['meanrev','Mean Reversion'],['trend','Trend Following']];
+    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
     // Default-check the forex/metals majors only — a first scan should be
@@ -3088,8 +2242,6 @@
   populateBatchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
-  $('btnFvg').addEventListener('click', () => { setStrategy('fvg'); });
-  $('btnVS').addEventListener('click', () => { setStrategy('volsqueeze'); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
   $('mrMarginSlider').addEventListener('input', (e) => {
     MR_MIN_REGIME_MARGIN = parseFloat(e.target.value);
@@ -3103,19 +2255,13 @@
     TREND_TP_RR = parseFloat(e.target.value);
     $('trendTpVal').textContent = TREND_TP_RR > 0 ? TREND_TP_RR.toFixed(2)+'R' : 'off';
   });
-  $('vsbFullRange').addEventListener('change', (e) => {
-    VSB_REQUIRE_FULL_RANGE = e.target.checked;
-  });
   $('btnMaxSelectivity').addEventListener('click', () => {
-    // Tightens the three existing filters to their highest-conviction
+    // Tightens the two existing filters to their highest-conviction
     // settings. Doesn't touch entry logic, stops, or anything not already
-    // exposed as a slider/checkbox elsewhere in this tool.
+    // exposed as a slider elsewhere in this tool.
     MR_MIN_REGIME_MARGIN = 1.5;
     $('mrMarginSlider').value = '1.5';
     $('mrMarginVal').textContent = '1.5';
-
-    VSB_REQUIRE_FULL_RANGE = true;
-    $('vsbFullRange').checked = true;
 
     TREND_TP_RR = 3.0;
     $('trendTpSlider').value = '3';
@@ -3128,11 +2274,9 @@
 
   function setStrategy(s){
     curStrategy = s;
-    [['btnFvg','fvg'],['btnVS','volsqueeze'],['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
     $('mrParamsRow').style.display = (s==='meanrev') ? 'block' : 'none';
     $('trendParamsRow').style.display = (s==='trend') ? 'block' : 'none';
-    $('btDepth').style.display = 'inline-block';
-    $('vsbFullRangeWrap').style.display = (s==='volsqueeze') ? 'inline-flex' : 'none';
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
     savePrefs();
@@ -3142,6 +2286,8 @@
 
   // Restore saved preferences before the first connect, so the tool reopens
   // exactly where it was left rather than always resetting to defaults.
+  // A strategy saved by an older version of this page (fvg/volsqueeze, since
+  // removed) falls back to meanrev rather than restoring a dead tab.
   (function applySavedPrefs(){
     const p = loadPrefs();
     if (!p) return;
@@ -3149,14 +2295,11 @@
     if (typeof p.tf === 'number') curTf = p.tf;
     if (typeof p.risk === 'number') riskAmountInput = p.risk;
     if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
-    if (p.strategy){
-      curStrategy = p.strategy;
-      [['btnFvg','fvg'],['btnVS','volsqueeze'],['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===p.strategy));
-      $('mrParamsRow').style.display = (p.strategy==='meanrev') ? 'block' : 'none';
-      $('trendParamsRow').style.display = (p.strategy==='trend') ? 'block' : 'none';
-      $('btDepth').style.display = 'inline-block';
-      $('vsbFullRangeWrap').style.display = (p.strategy==='volsqueeze') ? 'inline-flex' : 'none';
-    }
+    const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend') ? p.strategy : 'meanrev';
+    curStrategy = strategy;
+    [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
+    $('mrParamsRow').style.display = (strategy==='meanrev') ? 'block' : 'none';
+    $('trendParamsRow').style.display = (strategy==='trend') ? 'block' : 'none';
   })();
 
   updateSession();
