@@ -302,7 +302,7 @@
 
   <div class="btpanel" id="spikePanel" style="margin-bottom:12px">
     <h3>Spike Analysis — Boom/Crash</h3>
-    <div class="btmeta">Research tool, not a strategy: fetches real 1-minute history for each checked instrument, detects the large one-directional spikes Boom/Crash indices are built around (up-spikes on Boom, down-spikes on Crash), and reports the real gap and size statistics a Hunt-the-Spike or Fade-the-Grind strategy would need to be designed from actual data instead of a guess. Gap CV near 1 suggests the interval between spikes is memoryless (timing doesn't help); CV well below 1 suggests it's more clustered around the average (timing might help). "Grind" is the worst adverse move a position held from one spike to the next would have to survive, in the same ATR units as spike size — the median spike ÷ P90 grind ratio is the roughest possible read on Hunt-the-Spike's payoff-vs-cost shape, not a real backtest.</div>
+    <div class="btmeta">Research tool, not a strategy: fetches real 1-minute history for each checked instrument, detects the large one-directional spikes Boom/Crash indices are built around (up-spikes on Boom, down-spikes on Crash), and reports the real gap and size statistics a Hunt-the-Spike or Fade-the-Grind strategy would need to be designed from actual data instead of a guess. Gap CV near 1 suggests the interval between spikes is memoryless (timing doesn't help); CV well below 1 suggests it's more clustered around the average (timing might help). "Grind" is the adverse move a position held from one spike to the next would have to survive, in the same ATR units as spike size. Mean spike ÷ mean grind is the number that actually determines long-run expectancy for a position held through every cycle; median spike ÷ P90 grind is a separate, more conservative read on how bad a typical bad cycle looks — neither is a real backtest.</div>
     <div id="spikeSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim);padding:8px;border:1px solid var(--line);border-radius:6px"></div>
     <div class="ticket-actions">
       <span style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center">history:</span>
@@ -1114,7 +1114,8 @@
       return atrVal ? s.displacement/atrVal : null;
     }).filter(v => v!=null).sort((a,b)=>a-b);
     const pct = p => magsATR.length ? magsATR[Math.min(magsATR.length-1, Math.floor(p*magsATR.length))] : null;
-    return { n, meanGap, stdevGap, cv, medianMagATR: pct(0.5), p25MagATR: pct(0.25), p75MagATR: pct(0.75), maxMagATR: magsATR[magsATR.length-1] };
+    const meanMagATR = magsATR.length ? magsATR.reduce((a,b)=>a+b,0)/magsATR.length : null;
+    return { n, meanGap, stdevGap, cv, meanMagATR, medianMagATR: pct(0.5), p25MagATR: pct(0.25), p75MagATR: pct(0.75), maxMagATR: magsATR[magsATR.length-1] };
   }
   // The other half of Hunt-the-Spike's expectancy: how far price moves
   // AGAINST a position held from right after one spike until the next one
@@ -1142,7 +1143,8 @@
     if (!costsATR.length) return null;
     costsATR.sort((a,b)=>a-b);
     const pct = p => costsATR[Math.min(costsATR.length-1, Math.floor(p*costsATR.length))];
-    return { n: costsATR.length, medianCostATR: pct(0.5), p90CostATR: pct(0.90), maxCostATR: costsATR[costsATR.length-1] };
+    const meanCostATR = costsATR.reduce((a,b)=>a+b,0)/costsATR.length;
+    return { n: costsATR.length, meanCostATR, medianCostATR: pct(0.5), p90CostATR: pct(0.90), maxCostATR: costsATR[costsATR.length-1] };
   }
 
   function donchianChannel(c, uptoIndex, period){
@@ -2264,25 +2266,31 @@
     const wrap = $('spikeResultsWrap');
     if (!spikeResults.length){ wrap.innerHTML = ''; return; }
     const rows = spikeResults.map(r => {
-      if (r.status === 'running') return `<tr class="running"><td colspan="10">${r.label} — fetching/analyzing…</td></tr>`;
+      if (r.status === 'running') return `<tr class="running"><td colspan="11">${r.label} — fetching/analyzing…</td></tr>`;
       const s = r.stats, g = r.grind;
-      if (!s) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="8">Not enough spikes detected to compute statistics.</td></tr>`;
-      const ratio = (g && g.p90CostATR>0 && s.medianMagATR!=null) ? s.medianMagATR/g.p90CostATR : null;
+      if (!s) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="9">Not enough spikes detected to compute statistics.</td></tr>`;
+      // Mean vs mean is the number that actually determines long-run
+      // expectancy for a position held through every cycle — median/P90 are
+      // robust but blind to exactly how bad the tail gets, which is what
+      // decides whether repeatedly surviving the grind pays off overall.
+      const meanRatio = (g && g.meanCostATR>0 && s.meanMagATR!=null) ? s.meanMagATR/g.meanCostATR : null;
+      const tailRatio = (g && g.p90CostATR>0 && s.medianMagATR!=null) ? s.medianMagATR/g.p90CostATR : null;
       return `<tr>
         <td>${r.label}</td>
         <td>${r.candleCount}</td>
         <td>${s.n}</td>
         <td>${s.meanGap.toFixed(1)}</td>
         <td>${s.cv!=null?s.cv.toFixed(2):'—'}</td>
+        <td>${s.meanMagATR!=null?s.meanMagATR.toFixed(2):'—'}</td>
+        <td>${g&&g.meanCostATR!=null?g.meanCostATR.toFixed(2):'—'}</td>
+        <td class="${meanRatio>1?'pos':meanRatio<1?'neg':''}">${meanRatio!=null?meanRatio.toFixed(2):'—'}</td>
         <td>${s.medianMagATR!=null?s.medianMagATR.toFixed(2):'—'}</td>
-        <td>${s.maxMagATR!=null?s.maxMagATR.toFixed(2):'—'}</td>
-        <td>${g&&g.medianCostATR!=null?g.medianCostATR.toFixed(2):'—'}</td>
         <td>${g&&g.p90CostATR!=null?g.p90CostATR.toFixed(2):'—'}</td>
-        <td class="${ratio>1?'pos':ratio<1?'neg':''}">${ratio!=null?ratio.toFixed(2):'—'}</td>
+        <td class="${tailRatio>1?'pos':tailRatio<1?'neg':''}">${tailRatio!=null?tailRatio.toFixed(2):'—'}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="batch-table"><thead><tr>
-      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Avg gap (min)</th><th>Gap CV</th><th>Median spike (ATR)</th><th>Max spike (ATR)</th><th>Median grind (ATR)</th><th>P90 grind (ATR)</th><th>Median spike ÷ P90 grind</th>
+      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Avg gap (min)</th><th>Gap CV</th><th>Mean spike (ATR)</th><th>Mean grind (ATR)</th><th>Mean spike ÷ mean grind</th><th>Median spike (ATR)</th><th>P90 grind (ATR)</th><th>Median spike ÷ P90 grind</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   }
   function handleSpikeResult(item, candles){
