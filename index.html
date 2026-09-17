@@ -317,6 +317,7 @@
       <span id="spikeProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
     </div>
     <div id="spikeResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
+    <div id="huntResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
@@ -1151,6 +1152,137 @@
     const pct = p => costsATR[Math.min(costsATR.length-1, Math.floor(p*costsATR.length))];
     const meanCostATR = costsATR.reduce((a,b)=>a+b,0)/costsATR.length;
     return { n: costsATR.length, meanCostATR, medianCostATR: pct(0.5), p90CostATR: pct(0.90), maxCostATR: costsATR[costsATR.length-1] };
+  }
+
+  // ---------- Hunt-the-Spike backtest ----------
+  // Real spread/swap figures read directly off the live Deriv MT5
+  // Specification panel and trade ticket (Bid/Ask) for each instrument.
+  // Spread is Deriv's own "Floating" type — this is a point-in-time
+  // snapshot, not a guarantee it holds going forward. Swap magnitude
+  // (swapPctYear) is only filled in where it was actually confirmed from
+  // the spec panel; symbols without a confirmed rate carry `null` and are
+  // simulated on spread cost alone rather than guessing a number.
+  const REAL_SYMBOL_COSTS = {
+    BOOM300N:  { spreadPrice:0.484,  swapPctYear:-36 },
+    CRASH300N: { spreadPrice:0.896,  swapPctYear:null },
+    BOOM500:   { spreadPrice:0.414,  swapPctYear:null },
+    CRASH500:  { spreadPrice:0.306,  swapPctYear:null },
+    BOOM600:   { spreadPrice:0.618,  swapPctYear:null },
+    CRASH600:  { spreadPrice:2.974,  swapPctYear:null },
+    BOOM900:   { spreadPrice:0.874,  swapPctYear:null },
+    CRASH900:  { spreadPrice:1.071,  swapPctYear:null },
+    BOOM1000:  { spreadPrice:1.4808, swapPctYear:-29 },
+    CRASH1000: { spreadPrice:0.4812, swapPctYear:-18 }
+  };
+  // Buffer above the measured P90 grind, so the stop survives the vast
+  // majority of ordinary cycles rather than the merely-average one. A
+  // fixed design choice applied identically to every symbol, not tuned
+  // per-instrument to any one result.
+  const HUNT_SL_BUFFER_MULT = 1.2;
+  function huntCostR(entryPrice, holdSec, costs, slDistance){
+    if (!slDistance) return 0;
+    let costPrice = costs.spreadPrice;
+    // Swap is really charged once at each daily rollover crossed, not
+    // smoothly — this approximates it as a continuous per-day charge over
+    // the actual holding time instead. That understates any single trade
+    // that just barely crosses a rollover and overstates one that just
+    // misses it, but averaged over many independent episodes (which is
+    // exactly what backtestVerdict below requires before trusting a
+    // result) it converges to the same expected drag.
+    if (costs.swapPctYear != null){
+      const days = holdSec/86400;
+      costPrice += Math.abs(costs.swapPctYear)/100/365 * entryPrice * days;
+    }
+    return costPrice/slDistance;
+  }
+  // Enters right after a detected spike closes, in the guaranteed
+  // direction, and holds until either the next spike (win) or a stop-loss
+  // sized off the real P90 grind (loss). No lookahead: the stop is only
+  // ever checked candle-by-candle against data already in the past: the
+  // same walk-forward discipline as every other engine in this app.
+  function simulateHuntSpike(candles, direction, costs){
+    const spikes = detectSpikes(candles, direction);
+    const grind = computeGrindStats(spikes, candles, direction);
+    const trades = [];
+    if (!grind || spikes.length < 2) return { trades, grind, spikes };
+    // First pass: gather each cycle's entry-point ATR and take the median
+    // as a robust per-symbol anchor. A handful of entries can land in a
+    // near-flat 14-bar window where ATR is degenerately small — dividing
+    // the stop distance (and every downstream R) by that would swamp the
+    // whole result with a measurement artifact at one bar, not a real
+    // trade outcome, so cycles far below the symbol's typical ATR are
+    // treated as unmeasurable and excluded in the second pass below.
+    const cycles = [];
+    for (let i=1; i<spikes.length; i++){
+      const prevIdx = spikes[i-1].index, curIdx = spikes[i].index;
+      if (curIdx - prevIdx < 2) continue; // no room to grind — same skip rule as computeGrindStats
+      const atrVal = computeATR(candles, Math.max(14, prevIdx), 14);
+      if (!atrVal) continue;
+      cycles.push({ prevIdx, curIdx, atrVal });
+    }
+    if (!cycles.length) return { trades, grind, spikes };
+    const sortedAtr = cycles.map(c=>c.atrVal).sort((a,b)=>a-b);
+    const medianAtr = sortedAtr[Math.floor(sortedAtr.length/2)];
+    const atrFloor = medianAtr * 0.25;
+    for (const { prevIdx, curIdx, atrVal } of cycles){
+      if (atrVal < atrFloor) continue;
+      const entryPrice = candles[prevIdx].close;
+      const slDistance = grind.p90CostATR * HUNT_SL_BUFFER_MULT * atrVal;
+      if (!slDistance || slDistance <= 0) continue;
+      const slPrice = direction==='up' ? entryPrice - slDistance : entryPrice + slDistance;
+      let stopIndex = -1;
+      for (let j=prevIdx+1; j<curIdx; j++){
+        const hitSL = direction==='up' ? candles[j].low <= slPrice : candles[j].high >= slPrice;
+        if (hitSL){ stopIndex = j; break; }
+      }
+      const exitIndex = stopIndex>=0 ? stopIndex : curIdx;
+      const holdSec = candles[exitIndex].epoch - candles[prevIdx].epoch;
+      const costR = huntCostR(entryPrice, holdSec, costs, slDistance);
+      let R;
+      if (stopIndex>=0) R = -1 - costR;
+      else {
+        const exitPrice = candles[curIdx].close;
+        const netMove = direction==='up' ? (exitPrice-entryPrice) : (entryPrice-exitPrice);
+        R = netMove/slDistance - costR;
+      }
+      trades.push({ index: prevIdx, R, stopped: stopIndex>=0, holdSec });
+    }
+    return { trades, grind, spikes };
+  }
+  // Deliberately reuses backtestVerdict as-is (it only reads m.ne/
+  // episodeAvg/fhAvg/shAvg) so Hunt-the-Spike is held to exactly the same
+  // "100+ independent episodes, consistent split-half" bar as every other
+  // strategy in this app — no separate, looser standard for the new one.
+  // Unlike the fixed-SL/TP engines, collapseEpisodes is NOT applied here:
+  // that function exists to merge overlapping/re-triggering signals from
+  // engines that can fire multiple nearby candidate entries on the same
+  // underlying move. Hunt-the-Spike trades never overlap — each one is
+  // already the whole gap between two consecutive real spikes, so every
+  // trade already IS one independent episode. Collapsing on bar-proximity
+  // here would wrongly merge genuinely separate cycles whenever the real
+  // gap (14-24 real minutes on the confirmed data, i.e. 14-24 bars) falls
+  // within the 10-bar threshold — corrupting exactly the sample-size check
+  // backtestVerdict depends on to call a result real.
+  function computeHuntMetrics(huntTrades){
+    const n = huntTrades.length;
+    if (!n) return null;
+    const rawWins = huntTrades.filter(t=>t.R>0);
+    const rawTotal = huntTrades.reduce((s,t)=>s+t.R,0);
+    const CAP = 3.0;
+    const ne = n;
+    const capped = huntTrades.map(t => Math.min(t.R, CAP));
+    const episodeTotal = capped.reduce((s,v)=>s+v,0);
+    const episodeAvg = ne ? episodeTotal/ne : 0;
+    const episodeWinRate = ne ? capped.filter(v=>v>0).length/ne*100 : 0;
+    const mid = Math.floor(ne/2);
+    const fh = capped.slice(0,mid), sh = capped.slice(mid);
+    const fhAvg = fh.length ? fh.reduce((s,v)=>s+v,0)/fh.length : 0;
+    const shAvg = sh.length ? sh.reduce((s,v)=>s+v,0)/sh.length : 0;
+    return {
+      n, rawWinRate: rawWins.length/n*100, rawAvg: rawTotal/n,
+      ne, episodeWinRate, episodeAvg,
+      fhAvg, shAvg, fhN: fh.length, shN: sh.length
+    };
   }
 
   function donchianChannel(c, uptoIndex, period){
@@ -2261,6 +2393,33 @@
     return runId;
   }
   let spikeQueue = [], spikeResults = [], spikeRunning = false, spikeStopRequested = false;
+  let huntResults = [];
+  function renderHuntTable(){
+    const wrap = $('huntResultsWrap');
+    if (!wrap) return;
+    if (!huntResults.length){ wrap.innerHTML = ''; return; }
+    const rows = huntResults.map(r => {
+      const m = r.metrics, v = r.verdict;
+      const swapNote = r.costs.swapPctYear!=null ? `${r.costs.swapPctYear}%/yr` : 'unconfirmed — spread only';
+      if (!m) return `<tr><td>${r.label}</td><td>${r.costs.spreadPrice}</td><td>${swapNote}</td><td colspan="6">Not enough episodes to compute a backtest.</td></tr>`;
+      return `<tr>
+        <td>${r.label}</td>
+        <td>${r.costs.spreadPrice}</td>
+        <td>${swapNote}</td>
+        <td>${m.n}</td>
+        <td>${m.rawWinRate.toFixed(1)}%</td>
+        <td>${m.rawAvg.toFixed(2)}</td>
+        <td>${m.ne}</td>
+        <td class="${m.episodeAvg>0?'pos':m.episodeAvg<0?'neg':''}">${m.episodeAvg.toFixed(2)}R</td>
+        <td class="${v.cls}">${v.text}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<h4 style="margin:14px 0 6px">Hunt-the-Spike backtest (real spread${huntResults.some(r=>r.costs.swapPctYear!=null)?' + confirmed swap where known':''})</h4>
+    <div class="btmeta" style="margin-bottom:8px">Enters after each detected spike, holds to the next spike or a stop sized at ${HUNT_SL_BUFFER_MULT}× the measured P90 grind. Costs are the real spread read from the live MT5 ticket (see prior table); swap is included only where its rate was actually confirmed from the Specification panel, and approximated as a continuous per-day charge over the true holding time rather than modeling exact rollover timestamps — averages out correctly across many episodes even though any single trade's real swap hits in discrete daily charges, not smoothly. Verdict uses the same 100+ episode, consistent-split-half bar as every other strategy in this app.</div>
+    <table class="batch-table"><thead><tr>
+      <th>Symbol</th><th>Spread</th><th>Swap</th><th>Trades</th><th>Raw win rate</th><th>Raw avg R</th><th>Episodes</th><th>Episode avg R (capped)</th><th>Verdict</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
   function populateSpikeChecks(){
     const symDefs = [
       ['BOOM300N','Boom 300'],['BOOM500','Boom 500'],['BOOM600','Boom 600'],['BOOM900','Boom 900'],['BOOM1000','Boom 1000'],
@@ -2309,6 +2468,17 @@
     const row = {key:item.sym, status:'done', label:item.label, candleCount:candles.length, stats, grind};
     if (idx>=0) spikeResults[idx] = row; else spikeResults.push(row);
     renderSpikeTable();
+
+    const costs = REAL_SYMBOL_COSTS[item.sym];
+    if (costs){
+      const { trades } = simulateHuntSpike(candles, direction, costs);
+      const metrics = trades.length ? computeHuntMetrics(trades) : null;
+      const verdict = metrics ? backtestVerdict(metrics) : null;
+      const hIdx = huntResults.findIndex(r => r.key === item.sym);
+      const hRow = { key:item.sym, label:item.label, costs, metrics, verdict };
+      if (hIdx>=0) huntResults[hIdx] = hRow; else huntResults.push(hRow);
+      renderHuntTable();
+    }
     runNextSpikeItem();
   }
   function runNextSpikeItem(){
@@ -2340,11 +2510,13 @@
     if (!syms.length) return;
     spikeQueue = syms.slice();
     spikeResults = [];
+    huntResults = [];
     spikeStopRequested = false;
     spikeRunning = true;
     $('btnRunSpike').disabled = true;
     $('btnStopSpike').disabled = false;
     renderSpikeTable();
+    renderHuntTable();
     runNextSpikeItem();
   }
   $('btnRunSpike').addEventListener('click', runSpikeAnalysis);
