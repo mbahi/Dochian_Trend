@@ -1013,6 +1013,18 @@
   // position-building rule, not a fresh number picked for this tool. Each
   // add tightens the shared stop to the new unit's own 2N level (never
   // loosens it), same as the original "stops move up together" rule.
+  //
+  // Real-data batch results (12 forex/metals majors) showed this dragging
+  // the weighted average from a -0.07R baseline to -0.47R, uniformly
+  // negative across every instrument, with win rates collapsed to the
+  // 10-27% range. Isolated via TREND_USE_PYRAMID below across two
+  // independent real-data runs: with pyramiding off, results returned to
+  // -0.09R to -0.11R, close to baseline; with it on, -0.47R every time.
+  // The mechanism: tightening the stop to each new unit's own 2N level can
+  // knock an otherwise-good trend continuation out on an ordinary
+  // pullback that the original single, wider stop would have survived.
+  // Defaulted OFF as a result — this is real evidence the mechanism hurts
+  // more than it helps as implemented, not a style preference.
   const PYRAMID_ADD_MULT = 0.5, PYRAMID_MAX_UNITS = 4;
   // The original Turtle system had no separate higher-timeframe gate at
   // all — the breakout's own lookback length WAS the trend signal. Our H4
@@ -1021,27 +1033,28 @@
   // already in use; flip to false to test the unfiltered, closer-to-
   // original variant.
   let TREND_USE_H4_FILTER = true;
-  // Isolation toggles, added after real-data testing showed a combined
-  // regression (weighted avg -0.07R baseline -> -0.47R with both pyramiding
-  // and the last-trade filter active) that couldn't be attributed to either
-  // change alone. Both default true (current shipped behavior); flip either
-  // to false to bisect which one is actually responsible. Not a claim that
-  // false is "correct" — a diagnostic, not a fix.
-  let TREND_USE_PYRAMID = true;
+  // Isolation toggle — see the real-data findings in the pyramiding
+  // comment above. Defaulted OFF; flip to true (?pyramid=1) to bring
+  // pyramiding back for further testing, but the evidence currently says
+  // it hurts more than it helps.
+  let TREND_USE_PYRAMID = false;
   // In this implementation System 2 exists only as the last-trade filter's
   // fallback (see simulateTrendBacktest's entry logic) — there's no other
   // path that triggers it. Turning this off therefore tests "System 1
   // only, no filter, no System 2" as one combination, not System 2 in
   // isolation; the live ticket is unaffected (it always shows both systems
-  // independently — see buildTrendTicket's own comment on why).
+  // independently — see buildTrendTicket's own comment on why). Defaults
+  // true — not yet isolated on real data (pyramiding alone already
+  // explains almost the entire regression; this one's effect, if any, is
+  // within normal run-to-run noise) — still available to test properly.
   let TREND_USE_LAST_TRADE_FILTER = true;
   // No permanent UI control for these on purpose — this is a one-time
   // diagnostic to bisect a specific regression, not a feature the page
   // needs a control for. Two ways to flip them, so it works from a phone
   // (no console needed) as well as a desktop:
-  //   URL:     add ?pyramid=0 and/or ?ltf=0 and/or ?h4=0 to the page
-  //            address and reload — e.g. index.html?pyramid=0
-  //   Console: trendToggles.pyramid = false, etc.
+  //   URL:     add ?pyramid=1 and/or ?ltf=0 and/or ?h4=0 to the page
+  //            address and reload — e.g. index.html?pyramid=1
+  //   Console: trendToggles.pyramid = true, etc.
   (function applyTrendToggleParams(){
     const p = new URLSearchParams(location.search);
     if (p.has('pyramid')) TREND_USE_PYRAMID = p.get('pyramid') !== '0';
