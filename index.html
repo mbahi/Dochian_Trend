@@ -41,19 +41,6 @@
   .status .pulse{width:7px;height:7px;border-radius:50%;background:var(--faint)}
   .status .pulse.on{background:var(--brass);box-shadow:0 0 6px var(--brass)}
 
-  .rule11banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:linear-gradient(90deg, rgba(199,226,247,0.1), rgba(199,226,247,0.02));
-    border:1px solid rgba(199,226,247,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px;
-    font-family:var(--mono);font-size:11px;color:var(--brass);letter-spacing:0.02em}
-  .rule11banner b{color:var(--text)}
-
-  .readfirst{background:var(--ledger);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;padding:2px 14px}
-  .readfirst summary{cursor:pointer;padding:10px 0;font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--dim)}
-  .readfirst-body{padding:2px 0 14px;font-family:var(--sans);font-size:12px;color:var(--dim);line-height:1.6}
-  .readfirst-body p{margin-bottom:8px}
-  .readfirst-body ul{margin:0 0 8px 18px}
-  .readfirst-body li{margin-bottom:6px}
-  .readfirst-body b{color:var(--text)}
-
   /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once */
   .mtf{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
   .mtf-cell{flex:1;min-width:110px;background:var(--ledger);border:1px solid var(--line);border-radius:9px;
@@ -236,18 +223,6 @@
     </div>
   </header>
 
-  <details class="readfirst">
-    <summary>📖 Read this first</summary>
-    <div class="readfirst-body">
-      <p>This computes Entry/SL/TP1/TP2 from detected chart patterns. It <b>never places trades</b> — every number must be executed manually, by you, after you've confirmed it yourself. Both strategies here have been tested broadly across real instruments; check the validation badge under each strategy for the current read before trusting a signal, and run any setup on a demo account first.</p>
-    </div>
-  </details>
-
-  <div class="rule11banner">
-    <b>RULE 11</b> — Disclose Entry / SL / TP1 / TP2 before executing, on any instrument.
-    Two-tier TP: close 50% at TP1, move SL to breakeven, ride the rest to TP2. No trade goes in undisclosed.
-  </div>
-
   <div class="mtf" id="mtfstrip"></div>
 
   <div class="quote-row">
@@ -269,29 +244,6 @@
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
-  </div>
-
-  <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
-    <h3 style="margin-bottom:6px">Mean Reversion (Bollinger + RSI2)</h3>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
-      BB(20,2σ) + RSI(2) extreme &nbsp;·&nbsp; waits for a close back inside the band, enters next bar &nbsp;·&nbsp; H4 regime blocks counter-trend fades only &nbsp;·&nbsp; SL: ATR(14)×1.5 &nbsp;·&nbsp; TP1: BB mid (close 50%, SL→BE) &nbsp;·&nbsp; TP2: stretch beyond mid &nbsp;·&nbsp; time-stop: 10 bars
-    </div>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
-      <label style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
-        Min regime margin (neutral-regime trades only)
-        <input type="range" id="mrMarginSlider" min="0" max="2" step="0.1" value="0" style="flex:1">
-        <span id="mrMarginVal" style="min-width:38px;text-align:right;color:var(--text)">0.0</span>
-      </label>
-      <div style="font-size:10px;color:var(--faint);margin-top:4px">0 = off. Higher = when H4 reads "no clear trend," requires a more decisively flat structure before allowing a fade. Only applies to the neutral case — with-trend fades (H4 trending, fading in that direction) aren't affected by this slider. Affects Mean Reversion only.</div>
-    </div>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
-      <label style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
-        Max bars to confirm reversal
-        <input type="range" id="mrConfirmBarsSlider" min="1" max="8" step="1" value="3" style="flex:1">
-        <span id="mrConfirmBarsVal" style="min-width:28px;text-align:right;color:var(--text)">3</span>
-      </label>
-      <div style="font-size:10px;color:var(--faint);margin-top:4px">How many bars after the BB+RSI extreme a reversal confirmation is still valid. If no qualifying close-back-inside-the-band happens within this window, the setup expires — price kept "walking the band" instead of reversing, exactly the failure mode this confirmation step exists to filter out. A testing parameter, not a claimed-optimal value.</div>
-    </div>
   </div>
 
   <div class="rulepanel" id="trendParamsRow" style="display:none;margin-bottom:12px">
@@ -2041,14 +1993,6 @@
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
-  $('mrMarginSlider').addEventListener('input', (e) => {
-    MR_MIN_REGIME_MARGIN = parseFloat(e.target.value);
-    $('mrMarginVal').textContent = MR_MIN_REGIME_MARGIN.toFixed(1);
-  });
-  $('mrConfirmBarsSlider').addEventListener('input', (e) => {
-    MR_MAX_CONFIRM_BARS = parseInt(e.target.value, 10);
-    $('mrConfirmBarsVal').textContent = String(MR_MAX_CONFIRM_BARS);
-  });
   $('trendTpSlider').addEventListener('input', (e) => {
     TREND_TP_RR = parseFloat(e.target.value);
     $('trendTpVal').textContent = TREND_TP_RR > 0 ? TREND_TP_RR.toFixed(2)+'R' : 'off';
@@ -2058,8 +2002,6 @@
     // settings. Doesn't touch entry logic, stops, or anything not already
     // exposed as a slider elsewhere in this tool.
     MR_MIN_REGIME_MARGIN = 1.5;
-    $('mrMarginSlider').value = '1.5';
-    $('mrMarginVal').textContent = '1.5';
 
     TREND_TP_RR = 3.0;
     $('trendTpSlider').value = '3';
@@ -2073,7 +2015,6 @@
   function setStrategy(s){
     curStrategy = s;
     [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
-    $('mrParamsRow').style.display = (s==='meanrev') ? 'block' : 'none';
     $('trendParamsRow').style.display = (s==='trend') ? 'block' : 'none';
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
@@ -2096,7 +2037,6 @@
     const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend') ? p.strategy : 'meanrev';
     curStrategy = strategy;
     [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
-    $('mrParamsRow').style.display = (strategy==='meanrev') ? 'block' : 'none';
     $('trendParamsRow').style.display = (strategy==='trend') ? 'block' : 'none';
   })();
 
