@@ -49,9 +49,6 @@
   .mtf-cell .tf{font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint)}
   .mtf-cell .bias{font-size:13px;font-weight:600;margin-top:2px}
   .mtf-cell .bias.bull{color:var(--brass)} .mtf-cell .bias.bear{color:var(--steel)} .mtf-cell .bias.neutral{color:var(--faint)}
-  .val-badge{font-family:var(--mono);font-size:8.5px;letter-spacing:0.05em;text-transform:uppercase;margin-top:4px;padding:1px 0}
-  .val-badge.val-good{color:var(--green-acc)}
-  .val-badge.val-thin{color:var(--red-acc)}
 
   .quote-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px}
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -245,22 +242,6 @@
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
   </div>
-
-  <div class="rulepanel" id="trendParamsRow" style="display:none;margin-bottom:12px">
-    <h3 style="margin-bottom:6px">Trend Following (Donchian) — fixed to H1/H4</h3>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.7">
-      H4 momentum filter + H1 Donchian(20) breakout entry &nbsp;·&nbsp; SL: ATR(14)×2, trails at ATR(14)×3 &nbsp;·&nbsp; protective exit: Donchian(10) breach
-    </div>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
-      <label style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--dim)">
-        H4-confirmed TP (R:R)
-        <input type="range" id="trendTpSlider" min="0" max="4" step="0.25" value="0" style="flex:1">
-        <span id="trendTpVal" style="min-width:38px;text-align:right;color:var(--text)">off</span>
-      </label>
-      <div style="font-size:10px;color:var(--faint);margin-top:4px">0 = off (original pure-trailing behavior, letting winners run with no cap). Above 0: an H4-CLOSE-confirmed fixed R:R target. The moment price touches the target INTRABAR (even before H4 confirms), the stop tightens to breakeven immediately — so a reversal while waiting for confirmation costs nothing/little instead of giving the whole move back. The full-target exit only actually fires on the H4 candle that closes beyond it. Adverse checks (stop / Donchian(10) breach) are always evaluated before the target-touch check on the same bar, conservatively.</div>
-    </div>
-  </div>
-
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
 
@@ -1184,7 +1165,6 @@
           <div>
             <div class="ticket-title">Setup Ticket</div>
             <div class="ticket-tf">${$('symlabel').textContent} · ${effectiveTfLabel()} · ${strategyLabel()}</div>
-            <div class="ticket-tf" style="color:${STRATEGY_VALIDATION[curStrategy].cls==='val-good'?'#245c3f':'#7a2020'};font-weight:600">${STRATEGY_VALIDATION[curStrategy].label} — ${STRATEGY_VALIDATION[curStrategy].detail}</div>
           </div>
           <div class="ticket-bias ${t.dir}">${bias} · ${t.label}</div>
         </div>
@@ -1334,11 +1314,9 @@
       let biasLabel = 'idle', biasClass = 'neutral';
       if (cell.ticket){ biasLabel = (cell.ticket.dir==='bull'?'Bullish':'Bearish')+' · '+cell.ticket.label; biasClass = cell.ticket.dir==='bull'?'bull':'bear'; }
       else if (cell.key==='meanrev' && lastMRDiagnostic && lastMRDiagnostic.state && lastMRDiagnostic.state !== 'MR_IDLE'){ biasLabel = lastMRDiagnostic.state.replace('MR_','').replace(/_/g,' ').toLowerCase(); biasClass='neutral'; }
-      const v = STRATEGY_VALIDATION[cell.key];
       return `<div class="mtf-cell ${curStrategy===cell.key?'active':''}" data-strat="${cell.key}" style="cursor:pointer">
         <div class="tf">${cell.label}</div>
         <div class="bias ${biasClass}">${biasLabel}</div>
-        <div class="val-badge ${v.cls}">${v.label}</div>
       </div>`;
     }).join('');
     strip.querySelectorAll('.mtf-cell').forEach(cell => {
@@ -2004,19 +1982,12 @@
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
-  $('trendTpSlider').addEventListener('input', (e) => {
-    TREND_TP_RR = parseFloat(e.target.value);
-    $('trendTpVal').textContent = TREND_TP_RR > 0 ? TREND_TP_RR.toFixed(2)+'R' : 'off';
-  });
   $('btnMaxSelectivity').addEventListener('click', () => {
     // Tightens the two existing filters to their highest-conviction
     // settings. Doesn't touch entry logic, stops, or anything not already
     // exposed as a slider elsewhere in this tool.
     MR_MIN_REGIME_MARGIN = 1.5;
-
     TREND_TP_RR = 3.0;
-    $('trendTpSlider').value = '3';
-    $('trendTpVal').textContent = '3.00R';
 
     $('btnMaxSelectivity').textContent = 'Max Selectivity Preset ✓ applied';
     setTimeout(() => { $('btnMaxSelectivity').textContent = 'Max Selectivity Preset'; }, 2000);
@@ -2026,7 +1997,6 @@
   function setStrategy(s){
     curStrategy = s;
     [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
-    $('trendParamsRow').style.display = (s==='trend') ? 'block' : 'none';
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
     savePrefs();
@@ -2048,7 +2018,6 @@
     const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend') ? p.strategy : 'meanrev';
     curStrategy = strategy;
     [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
-    $('trendParamsRow').style.display = (strategy==='trend') ? 'block' : 'none';
   })();
 
   updateSession();
