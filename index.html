@@ -1021,6 +1021,38 @@
   // already in use; flip to false to test the unfiltered, closer-to-
   // original variant.
   let TREND_USE_H4_FILTER = true;
+  // Isolation toggles, added after real-data testing showed a combined
+  // regression (weighted avg -0.07R baseline -> -0.47R with both pyramiding
+  // and the last-trade filter active) that couldn't be attributed to either
+  // change alone. Both default true (current shipped behavior); flip either
+  // to false to bisect which one is actually responsible. Not a claim that
+  // false is "correct" — a diagnostic, not a fix.
+  let TREND_USE_PYRAMID = true;
+  // In this implementation System 2 exists only as the last-trade filter's
+  // fallback (see simulateTrendBacktest's entry logic) — there's no other
+  // path that triggers it. Turning this off therefore tests "System 1
+  // only, no filter, no System 2" as one combination, not System 2 in
+  // isolation; the live ticket is unaffected (it always shows both systems
+  // independently — see buildTrendTicket's own comment on why).
+  let TREND_USE_LAST_TRADE_FILTER = true;
+  // No permanent UI control for these on purpose — this is a one-time
+  // diagnostic to bisect a specific regression, not a feature the page
+  // needs a control for. Two ways to flip them, so it works from a phone
+  // (no console needed) as well as a desktop:
+  //   URL:     add ?pyramid=0 and/or ?ltf=0 and/or ?h4=0 to the page
+  //            address and reload — e.g. index.html?pyramid=0
+  //   Console: trendToggles.pyramid = false, etc.
+  (function applyTrendToggleParams(){
+    const p = new URLSearchParams(location.search);
+    if (p.has('pyramid')) TREND_USE_PYRAMID = p.get('pyramid') !== '0';
+    if (p.has('ltf')) TREND_USE_LAST_TRADE_FILTER = p.get('ltf') !== '0';
+    if (p.has('h4')) TREND_USE_H4_FILTER = p.get('h4') !== '0';
+  })();
+  window.trendToggles = {
+    get h4filter(){ return TREND_USE_H4_FILTER; }, set h4filter(v){ TREND_USE_H4_FILTER = !!v; },
+    get pyramid(){ return TREND_USE_PYRAMID; }, set pyramid(v){ TREND_USE_PYRAMID = !!v; },
+    get lastTradeFilter(){ return TREND_USE_LAST_TRADE_FILTER; }, set lastTradeFilter(v){ TREND_USE_LAST_TRADE_FILTER = !!v; }
+  };
   // Adjustable via the UI slider — 0 = off (original pure-trailing exit,
   // no cap on winners). >0 = an H4-candle-CLOSE-confirmed fixed R:R target,
   // checked only once per H4 close (not every H1 bar) to avoid reacting to
@@ -1724,7 +1756,7 @@
         // — the original Turtle position-building rule. Each add tightens
         // the shared stop to the new unit's own 2N level; max/min guards
         // ensure it only ever tightens, matching "stops move up together."
-        if (atrVal && openPos.units.length < PYRAMID_MAX_UNITS){
+        if (TREND_USE_PYRAMID && atrVal && openPos.units.length < PYRAMID_MAX_UNITS){
           const addThresh = openPos.dir==='bull'
             ? openPos.lastAddPrice + atrVal*PYRAMID_ADD_MULT
             : openPos.lastAddPrice - atrVal*PYRAMID_ADD_MULT;
@@ -1763,11 +1795,11 @@
       const wantBear = TREND_USE_H4_FILTER ? dir4===-1 : true;
       let dir = null, sys = null;
       if (wantBull && price > ch1.hi){
-        if (lastWinByDir.bull !== true){ dir='bull'; sys=1; }
+        if (!TREND_USE_LAST_TRADE_FILTER || lastWinByDir.bull !== true){ dir='bull'; sys=1; }
         else if (price > ch2.hi){ dir='bull'; sys=2; }
       }
       if (!dir && wantBear && price < ch1.lo){
-        if (lastWinByDir.bear !== true){ dir='bear'; sys=1; }
+        if (!TREND_USE_LAST_TRADE_FILTER || lastWinByDir.bear !== true){ dir='bear'; sys=1; }
         else if (price < ch2.lo){ dir='bear'; sys=2; }
       }
       if (!dir) continue;
