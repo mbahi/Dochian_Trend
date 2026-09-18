@@ -236,6 +236,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
+      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. See Batch Scan for the backing evidence (10/10 Boom/Crash instruments).">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -665,6 +666,7 @@
   }
 
   let lastMRDiagnostic = null;
+  let lastFadeStatus = null; // set by renderAll from buildSpikeFadeTicketLive, read by renderTicket's idle branch
 
   // ---------- Mean Reversion V2: extreme -> wait -> confirm -> next-bar entry ----------
   // V1 (immediate entry the instant BB+RSI extreme is hit) is preserved
@@ -1295,6 +1297,55 @@
     return trades;
   }
 
+  // Live view of Bounded-Time Fade for the current symbol — a status object,
+  // not always a fillable ticket, since the model's entry/exit are TIME-
+  // gated rather than price-gated. `phase` is one of:
+  //   not_applicable — sym isn't Boom/Crash (see spikeDirectionFor)
+  //   insufficient   — not enough spikes in the live 1m window yet (need 5+
+  //                    completed gaps, same bar as simulateSpikeTiming)
+  //   entry          — within the actionable entry window; ticket fields
+  //                    (dir/entry/sl/label/decimals/key) are populated
+  //   grinding       — already past entry, before the bounded-exit fraction
+  //   exit_zone      — past the bounded-exit fraction; model is flat here
+  function buildSpikeFadeTicketLive(c, sym){
+    const direction = spikeDirectionFor(sym);
+    if (!direction) return { phase:'not_applicable' };
+    if (!c || c.length < SPIKE_BASELINE_LOOKBACK + SPIKE_MIN_GAPS_FOR_STATS + 2) return { phase:'insufficient' };
+    const spikes = detectSpikes(c, direction);
+    if (spikes.length < SPIKE_MIN_GAPS_FOR_STATS + 1) return { phase:'insufficient' };
+    const gaps = [];
+    for (let k=1; k<spikes.length; k++) gaps.push(spikes[k].index - spikes[k-1].index);
+    const meanGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    const lastSpike = spikes[spikes.length-1];
+    const i = c.length-1;
+    const elapsedMin = i - lastSpike.index;
+    const posDir = direction==='up' ? 'bear' : 'bull';
+    const exitAtMin = SPIKE_FADE_EXIT_FRACTION * meanGap;
+    const status = { direction, posDir, elapsedMin, meanGapMin: meanGap, exitAtMin, lastSpikeEpoch: lastSpike.epoch };
+
+    // Live-only relaxation: the backtest requires entering on EXACTLY the
+    // bar after a spike (elapsed===1) for a clean, unambiguous walk-forward
+    // rule — see simulateSpikeTiming. A live viewer won't reliably have the
+    // page open on that exact minute, so this widens the actionable window
+    // to the first few bars after a spike (SPIKE_MIN_GAP_CANDLES — the same
+    // tolerance detectSpikes already uses to collapse a multi-candle spike
+    // print into one event). Display-only; the backtest itself is untouched.
+    if (elapsedMin >= 1 && elapsedMin <= SPIKE_MIN_GAP_CANDLES){
+      const atrVal = computeATR(c, i-1, 14);
+      const risk = atrVal ? atrVal*SPIKE_FADE_SL_ATR_MULT : 0;
+      const entry = c[i].close;
+      if (risk > 0 && risk >= Math.abs(entry)*MIN_RISK_FRACTION){
+        const sl = posDir==='bull' ? entry-risk : entry+risk;
+        return Object.assign(status, {
+          phase:'entry', dir:posDir, label:'Bounded-Time Fade', entry, sl, decimals: decimalsFor(sym),
+          key: `fade|${sym}|${posDir}|${c[i].epoch}`
+        });
+      }
+    }
+    status.phase = elapsedMin >= exitAtMin ? 'exit_zone' : 'grinding';
+    return status;
+  }
+
   function donchianChannel(c, uptoIndex, period){
     if (uptoIndex < period-1) return null;
     let hi = -Infinity, lo = Infinity;
@@ -1444,20 +1495,28 @@
   renderLog();
   renderLossTracker();
 
-  // Reflects a real, broad batch-scan result (not a placeholder): 1H, all
-  // 38 instruments this app supports, thousands of real episodes each.
-  // Neither strategy has shown a broad edge at 1H.
+  // meanrev/trend reflect the original broad batch-scan result (1H, all 38
+  // instruments, thousands of episodes) plus what later, more targeted
+  // scans this project ran actually found — a broad scan missing a narrow
+  // real effect isn't a contradiction, so both are kept rather than
+  // overwritten. spike_fade reflects Batch Scan's Boom/Crash-only run:
+  // 10/10 instruments, 0.05R spread-adjusted, split-half consistent, and
+  // (separately) win-size-distribution-checked — not a single aggregate
+  // number, since spike_fade was never run as one broad scan across all 38.
   const STRATEGY_VALIDATION = {
-    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across all 38 instruments, weighted avg ≈ −0.06R — untested at 4H/D1', cls:'val-thin'},
-    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative', cls:'val-thin'}
+    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across all 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
+    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on every Boom/Crash instrument too (10/10, 1H)', cls:'val-thin'},
+    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 Boom/Crash instruments, 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent)', cls:'val-good'}
   };
 
   function strategyLabel(){
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
+    if (curStrategy==='spike_fade') return 'Bounded-Time Fade (Boom/Crash)';
     return 'Trend Following (Donchian)';
   }
   function effectiveTfLabel(){
     if (curStrategy==='trend') return 'H1/H4 (fixed)';
+    if (curStrategy==='spike_fade') return '1m (fixed)';
     return TF_LABELS[curTf];
   }
 
@@ -1466,11 +1525,22 @@
     const now = new Date().toISOString().replace('T',' ').slice(0,19)+' UTC';
     const stratLabel = strategyLabel();
     const v = STRATEGY_VALIDATION[curStrategy];
-    return `Rule 11 Disclosure — ${$('symlabel').textContent} · ${tfLabel} · ${stratLabel}\n`+
+    const header = `Rule 11 Disclosure — ${$('symlabel').textContent} · ${tfLabel} · ${stratLabel}\n`+
       `Validation: ${v.label} (${v.detail})\n`+
       `Bias: ${t.dir==='bull'?'Bullish':'Bearish'} ${t.label}\n`+
       `Entry: ${t.entry.toFixed(t.decimals)}\n`+
-      `SL: ${t.sl.toFixed(t.decimals)}\n`+
+      `SL: ${t.sl.toFixed(t.decimals)}\n`;
+    // spike_fade has no fixed price target — the model's real exit is a
+    // TIME threshold (60% of the running mean gap since the last spike),
+    // not a level, so showing a TP1/TP2 price here would misrepresent the
+    // strategy. Disclose the time-based exit info instead.
+    if (curStrategy === 'spike_fade'){
+      return header +
+        `Exit rule: market exit at ~${t.exitAtMin.toFixed(0)}m since the last spike (mean gap ≈${t.meanGapMin.toFixed(0)}m) — no fixed price target\n`+
+        `Entered ${t.elapsedMin}m after the last detected spike\n`+
+        `Time: ${now}`;
+    }
+    return header +
       `TP1 (close 50%): ${t.tp1.toFixed(t.decimals)}\n`+
       `TP2 (SL→BE): ${t.tp2.toFixed(t.decimals)}\n`+
       `R:R  ${t.rr1.toFixed(2)} / ${t.rr2.toFixed(2)}\n`+
@@ -1503,17 +1573,43 @@
   function renderTicket(t){
     const slot = $('ticketslot');
     if (!t){
-      const msg = curStrategy==='meanrev'
-        ? (lastMRDiagnostic
-            ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}`
-            : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.')
-        : 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
+      let msg;
+      if (curStrategy==='meanrev'){
+        msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.';
+      } else if (curStrategy==='spike_fade'){
+        const s = lastFadeStatus;
+        if (!s || s.phase==='not_applicable') msg = 'Bounded-Time Fade only applies to Boom/Crash symbols — pick one above (e.g. Crash 600, Boom 900).';
+        else if (s.phase==='insufficient') msg = 'Not enough spikes in the live 1m window yet — need 5+ completed gaps between spikes before the running mean gap is trustworthy.';
+        else if (s.phase==='grinding') msg = `[FADE_GRINDING] Last spike ${s.elapsedMin}m ago (mean gap \u2248${s.meanGapMin.toFixed(0)}m). No new entry until the next spike.`;
+        else msg = `[FADE_EXIT_ZONE] ${s.elapsedMin}m since the last spike, past the ~${s.exitAtMin.toFixed(0)}m bounded-exit threshold (mean gap \u2248${s.meanGapMin.toFixed(0)}m). Model is flat here — next spike may be close.`;
+      } else {
+        msg = 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
+      }
       slot.innerHTML = `<div class="idle-ticket">${msg}</div>`;
       return;
     }
     const d = t.decimals;
     const bias = t.dir === 'bull' ? 'Bullish' : 'Bearish';
     const isDisclosed = disclosedKey === t.key;
+    const isFade = curStrategy === 'spike_fade';
+    // spike_fade has no fixed price target — its real exit is a TIME
+    // threshold (60% of the running mean gap since the last spike), so it
+    // gets its own grid/R:R line instead of misrepresenting a TP1/TP2 price.
+    const gridHtml = isFade
+      ? `<div class="ticket-grid">
+          <div class="tfield"><div class="k">Entry</div><div class="v">${t.entry.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">Stop Loss</div><div class="v">${t.sl.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">Exit by</div><div class="v">~${t.exitAtMin.toFixed(0)}m</div></div>
+          <div class="tfield"><div class="k">Elapsed / mean gap</div><div class="v">${t.elapsedMin}m / ${t.meanGapMin.toFixed(0)}m</div></div>
+        </div>
+        <div class="ticket-rr">Time-based exit — no fixed price target. Model's real-data win-size distribution: median 1.9-3.2R, see Batch Scan.</div>`
+      : `<div class="ticket-grid">
+          <div class="tfield"><div class="k">Entry</div><div class="v">${t.entry.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">Stop Loss</div><div class="v">${t.sl.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">TP1 (close 50%)</div><div class="v">${t.tp1.toFixed(d)}</div></div>
+          <div class="tfield"><div class="k">TP2 (SL→BE)</div><div class="v">${t.tp2.toFixed(d)}</div></div>
+        </div>
+        <div class="ticket-rr">R:R to TP1 ≈ ${t.rr1.toFixed(2)}   ·   R:R to TP2 ≈ ${t.rr2.toFixed(2)}</div>`;
     slot.innerHTML = `
       <div class="ticket ${t.dir==='bear'?'bear':''}">
         <div class="ticket-head">
@@ -1523,13 +1619,7 @@
           </div>
           <div class="ticket-bias ${t.dir}">${bias} · ${t.label}</div>
         </div>
-        <div class="ticket-grid">
-          <div class="tfield"><div class="k">Entry</div><div class="v">${t.entry.toFixed(d)}</div></div>
-          <div class="tfield"><div class="k">Stop Loss</div><div class="v">${t.sl.toFixed(d)}</div></div>
-          <div class="tfield"><div class="k">TP1 (close 50%)</div><div class="v">${t.tp1.toFixed(d)}</div></div>
-          <div class="tfield"><div class="k">TP2 (SL→BE)</div><div class="v">${t.tp2.toFixed(d)}</div></div>
-        </div>
-        <div class="ticket-rr">R:R to TP1 ≈ ${t.rr1.toFixed(2)}   ·   R:R to TP2 ≈ ${t.rr2.toFixed(2)}</div>
+        ${gridHtml}
         <div class="lotcalc">
           <div class="lotcalc-row">
             <label for="riskInput">Risk $</label>
@@ -1574,7 +1664,9 @@
         log.unshift({
           id: now.getTime(),
           sym: $('symlabel').textContent, tf: effectiveTfLabel(), bias: bias+' '+t.label+' ('+strategyLabel()+')',
-          entry: t.entry.toFixed(d), sl: t.sl.toFixed(d), tp1: t.tp1.toFixed(d), tp2: t.tp2.toFixed(d),
+          entry: t.entry.toFixed(d), sl: t.sl.toFixed(d),
+          tp1: isFade ? `~${t.exitAtMin.toFixed(0)}m mark` : t.tp1.toFixed(d),
+          tp2: isFade ? 'time-exit' : t.tp2.toFixed(d),
           time: now.toISOString().replace('T',' ').slice(0,19)+' UTC',
           outcome: null
         });
@@ -1660,15 +1752,21 @@
     const strip = $('strategystrip');
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     const trendTicket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
 
     const cells = [
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket},
-      {key:'trend', label:'Trend Following', ticket:trendTicket}
+      {key:'trend', label:'Trend Following', ticket:trendTicket},
+      {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult}
     ];
     strip.innerHTML = cells.map(cell => {
       let biasLabel = 'idle', biasClass = 'neutral';
       if (cell.ticket){ biasLabel = (cell.ticket.dir==='bull'?'Bullish':'Bearish')+' · '+cell.ticket.label; biasClass = cell.ticket.dir==='bull'?'bull':'bear'; }
       else if (cell.key==='meanrev' && lastMRDiagnostic && lastMRDiagnostic.state && lastMRDiagnostic.state !== 'MR_IDLE'){ biasLabel = lastMRDiagnostic.state.replace('MR_','').replace(/_/g,' ').toLowerCase(); biasClass='neutral'; }
+      else if (cell.key==='spike_fade' && cell.fadeStatus){
+        const p = cell.fadeStatus.phase;
+        biasLabel = p==='not_applicable' ? 'n/a (not Boom/Crash)' : p==='insufficient' ? 'insufficient data' : p==='grinding' ? 'grinding' : p==='exit_zone' ? 'exit zone' : 'idle';
+      }
       return `<div class="mtf-cell ${curStrategy===cell.key?'active':''}" data-strat="${cell.key}" style="cursor:pointer">
         <div class="tf">${cell.label}</div>
         <div class="bias ${biasClass}">${biasLabel}</div>
@@ -1767,6 +1865,10 @@
 
   function buildTicketForNotify(strat, tf){
     if (strat === 'trend') return buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    if (strat === 'spike_fade'){
+      const r = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
+      return r.phase === 'entry' ? r : null;
+    }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
     return buildMeanReversionTicketLive(c, candlesByTf[14400]);
@@ -1774,10 +1876,13 @@
 
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
-    const stratLbl = strat==='meanrev'?'Mean Reversion':'Trend Following';
-    const tfLbl = tf ? TF_LABELS[tf] : 'H1/H4';
+    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='spike_fade'?'Bounded-Time Fade':'Trend Following';
+    const tfLbl = tf ? TF_LABELS[tf] : strat==='spike_fade' ? '1m' : 'H1/H4';
+    const body = strat==='spike_fade'
+      ? `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nExit by ~${ticket.exitAtMin.toFixed(0)}m (mean gap ≈${ticket.meanGapMin.toFixed(0)}m) — no fixed price target`
+      : `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`;
     const n = new Notification(`${stratLbl} — ${tfLbl} — ${bias}`, {
-      body: `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`,
+      body,
       tag: `notify-${curSym}-${strat}-${tf||'x'}`
     });
     n.onclick = () => { window.focus(); n.close(); };
@@ -1790,7 +1895,7 @@
   function checkHTFNotifications(){
     if (!notifyEnabled || Notification.permission !== 'granted') return;
     const strat = curStrategy;
-    const tf = strat === 'trend' ? null : curTf;
+    const tf = (strat === 'trend' || strat === 'spike_fade') ? null : curTf;
     const ticket = buildTicketForNotify(strat, tf);
     if (!ticket) return;
     const key = tf || 'single';
@@ -1809,8 +1914,16 @@
     const structure = computeStructureEvents(candles, swings);
     const amd = computeAMD(candles);
     renderStrategyStrip(candles, swings, structure);
-    const ticket = curStrategy==='meanrev' ? buildMeanReversionTicketLive(candles, candlesByTf[14400])
-                                        : buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    let ticket;
+    if (curStrategy === 'meanrev'){
+      ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
+    } else if (curStrategy === 'spike_fade'){
+      const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
+      lastFadeStatus = fadeResult;
+      ticket = fadeResult.phase === 'entry' ? fadeResult : null;
+    } else {
+      ticket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    }
 
     renderChart(candles, swings, structure);
     renderAMDStrip(candles, amd);
@@ -2050,7 +2163,10 @@
     if (!lastBacktestTrades.length){ return; }
     const meta = lastBacktestMeta;
     const symLabel = $('symbol').selectedOptions[0].text;
-    const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2' : 'Trend_Following_Donchian';
+    const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2'
+      : meta.strat==='trend' ? 'Trend_Following_Donchian'
+      : meta.strat==='spike_fade' ? 'Bounded_Time_Fade'
+      : meta.strat==='spike_late' ? 'Late_Cycle_Entry' : meta.strat;
     const tfPart = meta.strat==='trend' ? 'H1H4aligned' : TF_LABELS[meta.tf];
     const header = ['bar_index','date','direction','label','entry','sl','tp1','tp2','rr1','rr2','result','R'];
     const rows = lastBacktestTrades.map(t => [
@@ -2206,7 +2322,10 @@
     const timeStops = meta.strat==='meanrev' ? closed.filter(t => t.timeStop).length : 0;
 
     const symLabel = $('symbol').selectedOptions[0].text;
-    const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)' : 'Trend Following (Donchian)';
+    const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)'
+      : meta.strat==='trend' ? 'Trend Following (Donchian)'
+      : meta.strat==='spike_fade' ? 'Bounded-Time Fade'
+      : meta.strat==='spike_late' ? 'Late-Cycle Entry' : meta.strat;
     const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : TF_LABELS[meta.tf];
     const dateRange = hist.length ? `${fmtDate(hist[0].epoch)} → ${fmtDate(hist[hist.length-1].epoch)}` : '';
 
@@ -2674,10 +2793,11 @@
     setTimeout(() => { $('btnMaxSelectivity').textContent = 'Max Selectivity Preset'; }, 2000);
   });
   $('btnTrend').addEventListener('click', () => { setStrategy('trend'); });
+  $('btnFade').addEventListener('click', () => { setStrategy('spike_fade'); });
 
   function setStrategy(s){
     curStrategy = s;
-    [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    [['btnMR','meanrev'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
     savePrefs();
@@ -2696,9 +2816,9 @@
     if (typeof p.tf === 'number') curTf = p.tf;
     if (typeof p.risk === 'number') riskAmountInput = p.risk;
     if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
-    const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend') ? p.strategy : 'meanrev';
+    const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend' || p.strategy === 'spike_fade') ? p.strategy : 'meanrev';
     curStrategy = strategy;
-    [['btnMR','meanrev'],['btnTrend','trend']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
+    [['btnMR','meanrev'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
   })();
 
   updateSession();
