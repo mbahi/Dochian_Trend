@@ -594,6 +594,13 @@
   // parameter (not a claim that 3 is optimal) — separate from MR_MAX_BARS,
   // which is the holding period AFTER entry, not before it.
   let MR_MAX_CONFIRM_BARS = 3;
+  // Connors' documented scale-in variant: rather than a single fixed-size
+  // entry, further equal-sized units are added as RSI(2) sets a NEW, more
+  // extreme reading in the same direction while the trade is still open and
+  // before TP1 is reached — averaging into the extreme instead of sizing
+  // once at the first confirmed signal. 3 units, matching the commonly-
+  // described Connors scaling depth, not a number picked for this data.
+  const MR_MAX_SCALE_UNITS = 3;
 
   function computeBB(c, uptoIndex, period, mult){
     if (uptoIndex < period-1) return null;
@@ -878,41 +885,81 @@
   // from the earlier extreme candle). Same-candle SL/TP ambiguity (Part 18)
   // is marked AMBIGUOUS rather than silently assumed as a loss — OHLC data
   // alone can't tell us which was actually touched first intrabar.
+  // Scale-in (Connors' documented variant, see MR_MAX_SCALE_UNITS above):
+  // units is [{entry}], starting with just the original confirmed entry. A
+  // trade that never scales in is just the n=1 case — every formula below
+  // reduces to exactly the original single-unit arithmetic in that case.
+  // All units share the SAME sl/tp1/tp2 PRICE LEVELS (set once, from the
+  // original confirmed setup); each unit's own R is computed against those
+  // fixed levels from its own entry price, then averaged. Each unit pays
+  // its own spread cost, since each is a genuinely separate fill.
   function simulateMeanReversionTradeV2(hist, entryIdx, t, maxBars){
     const deadline = entryIdx + maxBars;
+    const dir = t.dir;
+    const sig0 = computeMRSignals(hist, entryIdx);
+    let lastAddRSI = (sig0 && sig0.rsi!=null) ? sig0.rsi : (dir==='bull' ? 100 : 0);
+    const units = [{ entry: t.entry }];
     let hitTP1 = false;
+
+    function unitParts(entry){
+      const risk = Math.abs(entry - t.sl);
+      const rr1 = risk>0 ? Math.abs(t.tp1-entry)/risk : 0;
+      const rr2 = risk>0 ? Math.abs(t.tp2-entry)/risk : 0;
+      return { risk, rr1, rr2 };
+    }
+    function avgUnits(fn){ return units.reduce((s,u)=>s+fn(u.entry), 0) / units.length; }
+
     for (let j = entryIdx; j < hist.length; j++){
       const c = hist[j];
-      if (t.dir==='bull'){
+
+      // Scale in: only before TP1 is banked, only on a fresh, MORE extreme
+      // RSI(2) reading than the last add's own trigger (not just any dip
+      // below the original threshold), and only while price is still
+      // beyond the band — a live extreme, not stale noise.
+      if (!hitTP1 && units.length < MR_MAX_SCALE_UNITS && j > entryIdx){
+        const sig = computeMRSignals(hist, j);
+        if (sig){
+          const moreExtreme = dir==='bull' ? sig.rsi < lastAddRSI : sig.rsi > lastAddRSI;
+          const stillExtreme = dir==='bull' ? sig.isBullExtreme : sig.isBearExtreme;
+          if (moreExtreme && stillExtreme){
+            units.push({ entry: c.close });
+            lastAddRSI = sig.rsi;
+          }
+        }
+      }
+
+      if (dir==='bull'){
         if (!hitTP1){
           const hitSL = c.low <= t.sl, hitTP = c.high >= t.tp1;
-          if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true};
-          if (hitSL) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true, units:units.length};
+          if (hitSL) return {result:'SL', R: avgUnits(()=>-1-spreadCostR), exitIndex:j, units:units.length};
           if (hitTP) hitTP1 = true;
         } else {
           const hitBE = c.low <= t.entry, hitTP2 = c.high >= t.tp2;
-          if (hitBE && hitTP2) return {result:'AMBIGUOUS', R:0.5*t.rr1-spreadCostR, exitIndex:j, ambiguous:true};
-          if (hitBE) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
-          if (hitTP2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+          if (hitBE && hitTP2) return {result:'AMBIGUOUS', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, ambiguous:true, units:units.length};
+          if (hitBE) return {result:'TP1+BE', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, units:units.length};
+          if (hitTP2) return {result:'TP1+TP2', R: avgUnits(e=>{const p=unitParts(e); return 0.5*p.rr1+0.5*p.rr2-spreadCostR;}), exitIndex:j, units:units.length};
         }
       } else {
         if (!hitTP1){
           const hitSL = c.high >= t.sl, hitTP = c.low <= t.tp1;
-          if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true};
-          if (hitSL) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true, units:units.length};
+          if (hitSL) return {result:'SL', R: avgUnits(()=>-1-spreadCostR), exitIndex:j, units:units.length};
           if (hitTP) hitTP1 = true;
         } else {
           const hitBE = c.high >= t.entry, hitTP2 = c.low <= t.tp2;
-          if (hitBE && hitTP2) return {result:'AMBIGUOUS', R:0.5*t.rr1-spreadCostR, exitIndex:j, ambiguous:true};
-          if (hitBE) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
-          if (hitTP2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+          if (hitBE && hitTP2) return {result:'AMBIGUOUS', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, ambiguous:true, units:units.length};
+          if (hitBE) return {result:'TP1+BE', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, units:units.length};
+          if (hitTP2) return {result:'TP1+TP2', R: avgUnits(e=>{const p=unitParts(e); return 0.5*p.rr1+0.5*p.rr2-spreadCostR;}), exitIndex:j, units:units.length};
         }
       }
       if (j >= deadline){
         const exitPrice = c.close;
-        const risk = Math.abs(t.entry - t.sl);
-        const openR = risk>0 ? (t.dir==='bull' ? (exitPrice-t.entry)/risk : (t.entry-exitPrice)/risk) : 0;
-        const R = (hitTP1 ? 0.5*t.rr1 : 0) + (hitTP1 ? 0.5 : 1)*openR - spreadCostR;
+        const R = avgUnits(e => {
+          const risk = Math.abs(e - t.sl);
+          const openR = risk>0 ? (dir==='bull' ? (exitPrice-e)/risk : (e-exitPrice)/risk) : 0;
+          return (hitTP1 ? 0.5*unitParts(e).rr1 : 0) + (hitTP1 ? 0.5 : 1)*openR - spreadCostR;
+        });
         // Always a time-stop exit here — the deadline is what closed this
         // trade, not a stop touch, regardless of R sign/magnitude. Distinct
         // from whether TP1 was already banked first: a trade that hit TP1
@@ -920,10 +967,10 @@
         // remainder is a genuinely different outcome from one that never
         // got anywhere and just expired — same distinction the app already
         // makes between TP1+BE and a straight SL.
-        return { result: hitTP1 ? 'TP1+TIME_STOP' : 'TIME_STOP', R, exitIndex:j, timeStop:true };
+        return { result: hitTP1 ? 'TP1+TIME_STOP' : 'TIME_STOP', R, exitIndex:j, timeStop:true, units:units.length };
       }
     }
-    return {result:'open', R:0, exitIndex:hist.length-1};
+    return {result:'open', R:0, exitIndex:hist.length-1, units:units.length};
   }
 
   // ---------- Trend Following (Donchian breakout + ATR trailing stop) ----------
@@ -935,6 +982,22 @@
   // family of strategies is evidenced on, not a target price.
   const TREND_LOOKBACK = 200, ENTRY_PERIOD = 20, EXIT_PERIOD = 10,
         ATR_PERIOD = 14, ATR_SL_MULT = 2.0, ATR_TRAIL_MULT = 3.0;
+  // System 2 (the Turtles' longer-horizon breakout): 55-bar entry, 20-bar
+  // exit. Also the fallback system used by the "last trade" filter below.
+  const ENTRY_PERIOD2 = 55, EXIT_PERIOD2 = 20;
+  // Pyramiding: add a unit every 0.5N (ATR) of favorable movement beyond the
+  // most recently added unit, up to 4 units total — the original Turtle
+  // position-building rule, not a fresh number picked for this tool. Each
+  // add tightens the shared stop to the new unit's own 2N level (never
+  // loosens it), same as the original "stops move up together" rule.
+  const PYRAMID_ADD_MULT = 0.5, PYRAMID_MAX_UNITS = 4;
+  // The original Turtle system had no separate higher-timeframe gate at
+  // all — the breakout's own lookback length WAS the trend signal. Our H4
+  // filter on top of the H1 breakout is a deviation from the published
+  // system, kept as the current default (true) since that's the behavior
+  // already in use; flip to false to test the unfiltered, closer-to-
+  // original variant.
+  let TREND_USE_H4_FILTER = true;
   // Adjustable via the UI slider — 0 = off (original pure-trailing exit,
   // no cap on winners). >0 = an H4-candle-CLOSE-confirmed fixed R:R target,
   // checked only once per H4 close (not every H1 bar) to avoid reacting to
@@ -986,18 +1049,31 @@
   // exit rule is the trailing stop / opposite Donchian(10) breach, tracked
   // live rather than a fixed price.
   function buildTrendTicket(h1, h4){
-    if (!h1 || h1.length < ENTRY_PERIOD+ATR_PERIOD+2) return null;
-    if (!h4 || h4.length < TREND_LOOKBACK+2) return null;
-    const dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
-    if (dir4 === 0) return null;
+    if (!h1 || h1.length < ENTRY_PERIOD2+ATR_PERIOD+2) return null;
+    let dir4 = 0;
+    if (TREND_USE_H4_FILTER){
+      if (!h4 || h4.length < TREND_LOOKBACK+2) return null;
+      dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
+      if (dir4 === 0) return null;
+    }
     const i = h1.length-1;
     const atrVal = computeATR(h1, i-1, ATR_PERIOD);
-    const channel = donchianChannel(h1, i-1, ENTRY_PERIOD);
-    if (!atrVal || !channel) return null;
+    const ch1 = donchianChannel(h1, i-1, ENTRY_PERIOD);
+    const ch2 = donchianChannel(h1, i-1, ENTRY_PERIOD2);
+    if (!atrVal || !ch1 || !ch2) return null;
     const price = h1[i].close;
-    let dir = null;
-    if (dir4===1 && price > channel.hi) dir='bull';
-    else if (dir4===-1 && price < channel.lo) dir='bear';
+    const wantBull = TREND_USE_H4_FILTER ? dir4===1 : true;
+    const wantBear = TREND_USE_H4_FILTER ? dir4===-1 : true;
+    // The backtest's "last trade" skip-filter needs closed-trade history
+    // this live view doesn't persist across reloads, so it isn't applied
+    // here. Instead System 1 is checked first and System 2 is always
+    // available as a second, independent breakout to watch — not a
+    // substitute triggered by a rule this view can't see.
+    let dir = null, sys = null;
+    if (wantBull && price > ch1.hi){ dir='bull'; sys=1; }
+    else if (wantBull && price > ch2.hi){ dir='bull'; sys=2; }
+    else if (wantBear && price < ch1.lo){ dir='bear'; sys=1; }
+    else if (wantBear && price < ch2.lo){ dir='bear'; sys=2; }
     if (!dir) return null;
     // Entry = the breakout candle's CLOSE, not the Donchian level itself.
     // The signal requires a CONFIRMED close beyond the channel (see the
@@ -1015,8 +1091,8 @@
     const tp2 = dir==='bull' ? entry + risk*rr2 : entry - risk*rr2;
     const d = decimalsFor(curSym);
     return validateTicket({
-      dir, label:'Trend', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
-      key: `trend|${curSym}|${dir}|${h1[i].epoch}`,
+      dir, label: sys===2 ? 'Trend (Sys2)' : 'Trend', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+      key: `trend|${curSym}|${dir}|sys${sys}|${h1[i].epoch}`,
       trailing: true,
       h4ConfirmedTP: TREND_TP_RR > 0
     });
@@ -1496,7 +1572,8 @@
       lastKey = ticket.key;
       const outcome = simulateMeanReversionTradeV2(hist, i, ticket, MR_MAX_BARS);
       if (outcome.result === 'never filled'){ neverFilled++; continue; }
-      trades.push(Object.assign({index:i}, ticket, outcome));
+      const labelOverride = outcome.units>1 ? { label: `${ticket.label} (${outcome.units}u)` } : null;
+      trades.push(Object.assign({index:i}, ticket, outcome, labelOverride));
     }
     lastBacktestNeverFilled = neverFilled;
     return trades;
@@ -1507,11 +1584,22 @@
   // Donchian(10) breach), since its real exit rule has no fixed target to
   // check against. h4 must be pre-aligned to only bars that had already
   // closed by each h1 bar's time (same no-lookahead discipline used throughout).
+  // pos.units: one entry per pyramided add (see simulateTrendBacktest), each
+  // {entry, atrAtEntry}. A trade that never pyramids is just the n=1 case —
+  // same arithmetic as before this was added. Each unit is a genuinely
+  // separate fill, so each pays its own spread cost rather than charging it
+  // once for the whole blended position.
   function finishTrendTrade(pos, exitPrice, exitIdx, reason){
-    const risk = Math.abs(pos.entry - pos.origSL);
-    const pnl = pos.dir==='bull' ? (exitPrice-pos.entry) : (pos.entry-exitPrice);
-    const grossR = risk>0 ? pnl/risk : 0;
-    const isFullLoss = grossR <= -0.98; // hit the original, never-trailed stop
+    const unitRs = pos.units.map(u => {
+      const risk = u.atrAtEntry * ATR_SL_MULT;
+      if (!(risk > 0)) return -spreadCostR;
+      const pnl = pos.dir==='bull' ? (exitPrice-u.entry) : (u.entry-exitPrice);
+      return pnl/risk - spreadCostR;
+    });
+    const grossR = unitRs.reduce((a,b)=>a+b,0)/unitRs.length; // already spread-adjusted
+    const isFullLoss = grossR <= -0.9; // hit the original, never-trailed stop (approx across units)
+    const firstUnit = pos.units[0];
+    const origSL = pos.dir==='bull' ? firstUnit.entry - firstUnit.atrAtEntry*ATR_SL_MULT : firstUnit.entry + firstUnit.atrAtEntry*ATR_SL_MULT;
     const d = decimalsFor(curSym);
     // Accurate exit-mechanism label, kept separate from `result` (the
     // win/loss bucket the rest of the app's stats/charts already read) —
@@ -1537,19 +1625,25 @@
                       : exitReason==='initial_sl' ? 'SL'
                       : (isFullLoss ? 'SL' : 'TP1+TP2');
     return {
-      index: pos.entryIdx, dir: pos.dir, label:'Trend',
-      entry: pos.entry, sl: pos.origSL, tp1: exitPrice, tp2: exitPrice,
+      index: pos.entryIdx, dir: pos.dir, label: pos.units.length>1 ? `Trend (${pos.units.length}u)` : 'Trend',
+      entry: firstUnit.entry, sl: origSL, tp1: exitPrice, tp2: exitPrice,
       rr1: isFullLoss?0:grossR, rr2: isFullLoss?0:grossR,
       decimals: d,
       result: isFullLoss ? 'SL' : 'TP1+TP2',
-      exitReason, exitResult,
-      R: grossR - spreadCostR
+      exitReason, exitResult, sys: pos.sys, units: pos.units.length,
+      R: grossR
     };
   }
   function simulateTrendBacktest(h1, h4){
     const trades = [];
     let h4ptr = -1, openPos = null;
-    const minIdx = Math.max(ENTRY_PERIOD+2, ATR_PERIOD+2);
+    // "Last trade" filter (the Turtles' actual rule): skip the next System 1
+    // breakout in a direction if the PRIOR closed Trend trade in that same
+    // direction was a winner, falling back to System 2's longer (55-bar)
+    // breakout instead. Local to this run — per-symbol trade history, not
+    // state that should leak between separate backtest runs.
+    const lastWinByDir = { bull: null, bear: null };
+    const minIdx = Math.max(ENTRY_PERIOD2+2, ATR_PERIOD+2);
     for (let i = minIdx; i < h1.length; i++){
       const h1Time = h1[i].epoch;
       const prevH4ptr = h4ptr;
@@ -1558,8 +1652,14 @@
       const bar = h1[i];
 
       if (openPos){
-        const exitCh = donchianChannel(h1, i-1, EXIT_PERIOD);
+        // Exit channel matches whichever system triggered this trade:
+        // System 1 exits at 10 bars, System 2 (the last-trade fallback) at
+        // 20 — the original Turtle pairing for each system, not a shared
+        // exit regardless of which one got you in.
+        const exitPeriod = openPos.sys === 2 ? EXIT_PERIOD2 : EXIT_PERIOD;
+        const exitCh = donchianChannel(h1, i-1, exitPeriod);
         const atrVal = computeATR(h1, i-1, ATR_PERIOD);
+        const firstUnit = openPos.units[0];
 
         // Adverse checks first (conservative same-bar tie resolution, same
         // convention used elsewhere in this tool: assume the worse outcome
@@ -1567,16 +1667,16 @@
         // whatever stop is currently in force, including any breakeven
         // tightening from a PRIOR bar's target touch below.
         if (openPos.dir==='bull'){
-          if (exitCh && bar.low < exitCh.lo){ trades.push(finishTrendTrade(openPos, exitCh.lo, i, 'donchian_exit')); openPos = null; continue; }
-          if (bar.low <= openPos.sl){ trades.push(finishTrendTrade(openPos, openPos.sl, i, 'stop')); openPos = null; continue; }
+          if (exitCh && bar.low < exitCh.lo){ const t=finishTrendTrade(openPos, exitCh.lo, i, 'donchian_exit'); trades.push(t); lastWinByDir[openPos.dir]=t.R>0; openPos = null; continue; }
+          if (bar.low <= openPos.sl){ const t=finishTrendTrade(openPos, openPos.sl, i, 'stop'); trades.push(t); lastWinByDir[openPos.dir]=t.R>0; openPos = null; continue; }
         } else {
-          if (exitCh && bar.high > exitCh.hi){ trades.push(finishTrendTrade(openPos, exitCh.hi, i, 'donchian_exit')); openPos = null; continue; }
-          if (bar.high >= openPos.sl){ trades.push(finishTrendTrade(openPos, openPos.sl, i, 'stop')); openPos = null; continue; }
+          if (exitCh && bar.high > exitCh.hi){ const t=finishTrendTrade(openPos, exitCh.hi, i, 'donchian_exit'); trades.push(t); lastWinByDir[openPos.dir]=t.R>0; openPos = null; continue; }
+          if (bar.high >= openPos.sl){ const t=finishTrendTrade(openPos, openPos.sl, i, 'stop'); trades.push(t); lastWinByDir[openPos.dir]=t.R>0; openPos = null; continue; }
         }
 
         if (TREND_TP_RR > 0){
-          const risk = Math.abs(openPos.entry - openPos.origSL);
-          const target = openPos.dir==='bull' ? openPos.entry + risk*TREND_TP_RR : openPos.entry - risk*TREND_TP_RR;
+          const risk = firstUnit.atrAtEntry*ATR_SL_MULT;
+          const target = openPos.dir==='bull' ? firstUnit.entry + risk*TREND_TP_RR : firstUnit.entry - risk*TREND_TP_RR;
           // Target touched intrabar (even without H4 confirmation yet): lock
           // in breakeven immediately so a reversal before the H4 candle
           // closes costs nothing/little instead of giving back the whole
@@ -1584,16 +1684,33 @@
           // trailed out at a loss while waiting for confirmation.
           const touchedIntrabar = openPos.dir==='bull' ? bar.high >= target : bar.low <= target;
           if (touchedIntrabar){
-            openPos.tpTouched = true;
-            if (openPos.dir==='bull'){ if (openPos.entry > openPos.sl) openPos.sl = openPos.entry; }
-            else { if (openPos.entry < openPos.sl) openPos.sl = openPos.entry; }
+            if (openPos.dir==='bull'){ if (firstUnit.entry > openPos.sl) openPos.sl = firstUnit.entry; }
+            else { if (firstUnit.entry < openPos.sl) openPos.sl = firstUnit.entry; }
           }
           // Full target only confirmed — and the trade only actually
           // closed for the full R:R — on the bar an H4 candle CLOSES
           // beyond it.
           if (h4JustClosed){
             const hitTarget = openPos.dir==='bull' ? bar.close >= target : bar.close <= target;
-            if (hitTarget){ trades.push(finishTrendTrade(openPos, bar.close, i, 'h4_target')); openPos = null; continue; }
+            if (hitTarget){ const t=finishTrendTrade(openPos, bar.close, i, 'h4_target'); trades.push(t); lastWinByDir[openPos.dir]=t.R>0; openPos = null; continue; }
+          }
+        }
+
+        // Pyramiding: add a unit every PYRAMID_ADD_MULT*N of favorable
+        // movement beyond the LAST add's own entry, up to PYRAMID_MAX_UNITS
+        // — the original Turtle position-building rule. Each add tightens
+        // the shared stop to the new unit's own 2N level; max/min guards
+        // ensure it only ever tightens, matching "stops move up together."
+        if (atrVal && openPos.units.length < PYRAMID_MAX_UNITS){
+          const addThresh = openPos.dir==='bull'
+            ? openPos.lastAddPrice + atrVal*PYRAMID_ADD_MULT
+            : openPos.lastAddPrice - atrVal*PYRAMID_ADD_MULT;
+          const favorable = openPos.dir==='bull' ? bar.close >= addThresh : bar.close <= addThresh;
+          if (favorable){
+            openPos.units.push({ entry: bar.close, atrAtEntry: atrVal });
+            openPos.lastAddPrice = bar.close;
+            const newStop = openPos.dir==='bull' ? bar.close - atrVal*ATR_SL_MULT : bar.close + atrVal*ATR_SL_MULT;
+            openPos.sl = openPos.dir==='bull' ? Math.max(openPos.sl, newStop) : Math.min(openPos.sl, newStop);
           }
         }
 
@@ -1604,20 +1721,36 @@
         continue; // in a position — don't also evaluate a new entry same bar
       }
 
-      if (h4ptr < TREND_LOOKBACK) continue;
-      const dir4 = trendDirectionTF(h4, h4ptr, TREND_LOOKBACK);
-      if (dir4 === 0) continue;
+      if (h4ptr < TREND_LOOKBACK && TREND_USE_H4_FILTER) continue;
+      const dir4 = TREND_USE_H4_FILTER ? trendDirectionTF(h4, h4ptr, TREND_LOOKBACK) : 0;
+      if (TREND_USE_H4_FILTER && dir4 === 0) continue;
       const atrVal = computeATR(h1, i-1, ATR_PERIOD);
-      const channel = donchianChannel(h1, i-1, ENTRY_PERIOD);
-      if (!atrVal || !channel) continue;
+      const ch1 = donchianChannel(h1, i-1, ENTRY_PERIOD);
+      const ch2 = donchianChannel(h1, i-1, ENTRY_PERIOD2);
+      if (!atrVal || !ch1 || !ch2) continue;
       const price = bar.close;
-      let dir = null;
-      if (dir4===1 && price > channel.hi) dir='bull';
-      else if (dir4===-1 && price < channel.lo) dir='bear';
+      // "Last trade" filter: only take a System 1 signal in a direction if
+      // the prior closed Trend trade in that SAME direction wasn't already
+      // a winner; otherwise require the longer System 2 breakout instead.
+      // The original Turtle rationale: consecutive System-1 winners in the
+      // same direction are less likely, so fall back to the higher-
+      // conviction, less-frequent signal rather than skip the direction
+      // entirely.
+      const wantBull = TREND_USE_H4_FILTER ? dir4===1 : true;
+      const wantBear = TREND_USE_H4_FILTER ? dir4===-1 : true;
+      let dir = null, sys = null;
+      if (wantBull && price > ch1.hi){
+        if (lastWinByDir.bull !== true){ dir='bull'; sys=1; }
+        else if (price > ch2.hi){ dir='bull'; sys=2; }
+      }
+      if (!dir && wantBear && price < ch1.lo){
+        if (lastWinByDir.bear !== true){ dir='bear'; sys=1; }
+        else if (price < ch2.lo){ dir='bear'; sys=2; }
+      }
       if (!dir) continue;
       const entry = price;
       const sl = dir==='bull' ? entry - atrVal*ATR_SL_MULT : entry + atrVal*ATR_SL_MULT;
-      openPos = { dir, entry, sl, origSL: sl, entryIdx: i };
+      openPos = { dir, sys, entryIdx: i, sl, units: [{ entry, atrAtEntry: atrVal }], lastAddPrice: entry };
     }
     if (openPos) trades.push(Object.assign(finishTrendTrade(openPos, h1[h1.length-1].close, h1.length-1, 'end_of_data'), {result:'open', R:0}));
     return trades;
