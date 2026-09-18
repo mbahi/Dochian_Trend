@@ -55,10 +55,7 @@
   .batch-table td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--dim)}
   .batch-table td.pos{color:var(--green-acc)} .batch-table td.neg{color:var(--red-acc)}
   .batch-table tr.running td{color:var(--brass)}
-  .batch-verdict{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600}
-  .batch-verdict.val-good{background:rgba(63,143,111,0.18);color:var(--green-acc)}
-  .batch-verdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc)}
-  #batchSymChecks label, #batchStratChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+  #researchSymChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
 
   .quote-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px}
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -253,17 +250,23 @@
     </span>
   </div>
 
-  <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
-    <h3>Batch Scan</h3>
-    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error.</div>
-    <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
-    <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
+  <div class="btpanel" id="researchPanel" style="margin-bottom:12px">
+    <h3>Boom/Crash Research</h3>
+    <div class="btmeta">Two measurements, not a strategy: (1) does a longer wait before a spike predict a bigger spike (Pearson r between gap length and next spike's ATR-normalized size); (2) does a spike tend to follow a swing-structure liquidity sweep (BOS/CHoCH) more than chance — "sweep rate at spikes" vs. the same rate measured at every ordinary bar as the honest baseline. Sweep lift &gt;1× means spikes cluster after sweeps more than random timing would predict; ~1× means no relationship.</div>
+    <div id="researchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim);padding:8px;border:1px solid var(--line);border-radius:6px"></div>
     <div class="ticket-actions">
-      <button class="tbtn" id="btnRunBatch" style="background:var(--brass);color:#0f1826">Run Batch Scan</button>
-      <button class="tbtn" id="btnStopBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
-      <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center">history:</span>
+      <select id="researchPages" title="How much 1-minute history to scan per instrument">
+        <option value="1">~3.5 days</option>
+        <option value="3" selected>~10 days</option>
+        <option value="6">~21 days</option>
+        <option value="12">~42 days</option>
+      </select>
+      <button class="tbtn" id="btnRunResearch" style="background:var(--brass);color:#0f1826">Run Research</button>
+      <button class="tbtn" id="btnStopResearch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <span id="researchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
     </div>
-    <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
+    <div id="researchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
@@ -1082,6 +1085,97 @@
       sum += tr;
     }
     return sum/period;
+  }
+
+  // ---------- Boom/Crash research: two new measurements, not a strategy ----------
+  // Not a re-run of Hunt-the-Spike/Fade-the-Grind (both conclusively negative
+  // across a full stop-sensitivity sweep this session) — these check two
+  // specific, previously-untested claims before any new strategy is built:
+  // (1) does a longer wait between spikes predict a bigger next spike (a
+  // "coiled spring" effect), and (2) does Boom/Crash "respect" swing-
+  // structure liquidity sweeps (BOS/CHoCH) more than chance would predict.
+  // Direction is inferred from the symbol name (BOOM* spikes up, CRASH*
+  // spikes down) — documented product behavior, not something this infers.
+  const SPIKE_BASELINE_LOOKBACK = 20, SPIKE_THRESHOLD_MULT = 4, SPIKE_MIN_GAP_CANDLES = 3;
+  function detectSpikes(c, direction){
+    const spikes = [];
+    for (let i = SPIKE_BASELINE_LOOKBACK; i < c.length; i++){
+      const isRightDir = direction==='up' ? c[i].close > c[i].open : c[i].close < c[i].open;
+      if (!isRightDir) continue;
+      const ranges = c.slice(i-SPIKE_BASELINE_LOOKBACK, i).map(x => x.high-x.low).sort((a,b)=>a-b);
+      const median = ranges[Math.floor(ranges.length/2)];
+      if (!median || median <= 0) continue;
+      const displacement = direction==='up' ? (c[i].close-c[i].open) : (c[i].open-c[i].close);
+      if (displacement >= median*SPIKE_THRESHOLD_MULT) spikes.push({index:i, epoch:c[i].epoch, displacement});
+    }
+    // Collapse detections within SPIKE_MIN_GAP_CANDLES of each other down to
+    // the single largest — a genuine spike often prints as 2-3 anomalous
+    // candles in a row, not one, and that's one event, not several.
+    const collapsed = [];
+    for (const s of spikes){
+      const prev = collapsed[collapsed.length-1];
+      if (prev && s.index - prev.index <= SPIKE_MIN_GAP_CANDLES){
+        if (s.displacement > prev.displacement) collapsed[collapsed.length-1] = s;
+      } else collapsed.push(s);
+    }
+    return collapsed;
+  }
+  // Claim #1: does the gap BEFORE a spike predict that spike's SIZE (a
+  // "coiled spring" effect — longer wait, bigger release)? Pearson
+  // correlation between each gap (minutes since the prior spike) and the
+  // magnitude of the spike that ended it (in ATR units, so it's comparable
+  // across instruments with very different price scales).
+  function computeGapSizeCorrelation(spikes, c){
+    if (spikes.length < 5) return null;
+    const pairs = [];
+    for (let i=1; i<spikes.length; i++){
+      const gapMin = (spikes[i].epoch - spikes[i-1].epoch)/60;
+      const atrVal = computeATR(c, Math.max(14, spikes[i].index-1), 14);
+      if (!atrVal) continue;
+      pairs.push({ gapMin, magATR: spikes[i].displacement/atrVal });
+    }
+    if (pairs.length < 5) return null;
+    const n = pairs.length;
+    const meanGap = pairs.reduce((s,p)=>s+p.gapMin,0)/n;
+    const meanMag = pairs.reduce((s,p)=>s+p.magATR,0)/n;
+    let cov=0, varGap=0, varMag=0;
+    for (const p of pairs){
+      const dg = p.gapMin-meanGap, dm = p.magATR-meanMag;
+      cov += dg*dm; varGap += dg*dg; varMag += dm*dm;
+    }
+    const r = (varGap>0 && varMag>0) ? cov/Math.sqrt(varGap*varMag) : null;
+    return { n, r, meanGap, meanMag };
+  }
+  // Claim #2: does a spike tend to arrive shortly after a swing-structure
+  // liquidity sweep (a BOS/CHoCH event — the same computeSwings/
+  // computeStructureEvents machinery already driving the chart, reused
+  // as-is, not reinvented)? Compares the rate of "a BOS/CHoCH fired in the
+  // `windowBars` bars right before this spike" against the SAME rate
+  // measured at every ordinary bar in the series — the honest baseline a
+  // real effect has to beat, not just "sometimes there's a sweep nearby."
+  function computeLiquiditySweepCorrelation(spikes, c, windowBars){
+    windowBars = windowBars || 5;
+    if (spikes.length < 5 || c.length < windowBars+10) return null;
+    const swings = computeSwings(c);
+    const { events } = computeStructureEvents(c, swings);
+    if (!events.length) return { n: spikes.length, spikeRate: null, baselineRate: null, eventCount: 0, windowBars };
+    const hasEvent = new Uint8Array(c.length);
+    for (const e of events) hasEvent[e.index] = 1;
+    function sweptBefore(idx){
+      const lo = Math.max(0, idx - windowBars);
+      for (let j = lo; j < idx; j++) if (hasEvent[j]) return true;
+      return false;
+    }
+    let spikesWithSweep = 0;
+    for (const s of spikes) if (sweptBefore(s.index)) spikesWithSweep++;
+    const spikeRate = spikesWithSweep / spikes.length;
+    let baselineHits = 0, baselineTotal = 0;
+    for (let i = windowBars; i < c.length; i++){
+      baselineTotal++;
+      if (sweptBefore(i)) baselineHits++;
+    }
+    const baselineRate = baselineTotal ? baselineHits/baselineTotal : null;
+    return { n: spikes.length, spikeRate, baselineRate, eventCount: events.length, windowBars };
   }
 
   function donchianChannel(c, uptoIndex, period){
@@ -2130,6 +2224,15 @@
       }, 30);
       return;
     }
+    // Boom/Crash research: a plain 1m-candle fetch with no strategy/
+    // simulation attached — hands the merged candle series straight to
+    // the caller, same pattern as every fetch-only research tool this app
+    // has used (the removed Spike Analysis panel worked identically).
+    if (bucket.kind === 'research' && bucket.data){
+      bucket.onComplete(bucket.data);
+      delete pendingEABacktest[runId];
+      return;
+    }
   }
 
   $('spreadInput').addEventListener('input', e => { spreadCostR = Math.max(0, Number(e.target.value) || 0); savePrefs(); });
@@ -2181,105 +2284,94 @@
     startBacktestFetch(curSym, curStrategy, curTf);
   });
 
-  // ---------- Batch Scan: run every checked strategy across every checked
-  // symbol, one at a time, through the exact same startBacktestFetch/
-  // finalizePart/simulate*/computeAdvancedMetrics/backtestVerdict pipeline
-  // as a single interactive "Run Backtest" click — see startBacktestFetch's
-  // and finalizePart's onComplete branches above. This exists purely to
-  // remove the tedium of clicking through combinations by hand; it changes
-  // no math and applies no extra filtering, so a "0 signals" or "no edge"
-  // row here is exactly what a manual run would have shown too.
-  function strategyLabelFor(s){
-    return s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
+  // ---------- Boom/Crash research orchestration ----------
+  function startResearchFetch(sym, pages, onComplete){
+    const runId = 'research' + Date.now() + Math.random().toString(36).slice(2,7);
+    pendingEABacktest[runId] = {kind:'research', sym, data_pages:[], onComplete};
+    requestHistoryPage(sym, 60, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:pages});
+    return runId;
   }
-  let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
-  function populateBatchChecks(){
-    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following']];
-    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
-    const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // Default-check the forex/metals majors only — a first scan should be
-    // fast, and these are the instruments with a real order-book behind
-    // them (unlike Deriv's synthetic indices, which are a continuously-
-    // generated RNG process with no actual participant footprints for
-    // SMC-style structure concepts to detect). Everything else is opt-in.
-    const defaultOn = new Set(['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD','frxUSDCHF','frxNZDUSD','frxXAUUSD']);
-    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" ${defaultOn.has(o.value)?'checked':''}> ${o.textContent}</label>`).join('');
+  let researchQueue = [], researchResults = [], researchRunning = false, researchStopRequested = false;
+  function populateResearchChecks(){
+    const symDefs = [
+      ['BOOM300N','Boom 300'],['BOOM500','Boom 500'],['BOOM600','Boom 600'],['BOOM900','Boom 900'],['BOOM1000','Boom 1000'],
+      ['CRASH300N','Crash 300'],['CRASH500','Crash 500'],['CRASH600','Crash 600'],['CRASH900','Crash 900'],['CRASH1000','Crash 1000']
+    ];
+    $('researchSymChecks').innerHTML = symDefs.map(([v,l]) => `<label><input type="checkbox" class="researchSym" value="${v}" data-label="${l}" checked> ${l}</label>`).join('');
   }
-  function renderBatchTable(){
-    const wrap = $('batchResultsWrap');
-    if (!batchResults.length){ wrap.innerHTML = ''; return; }
-    const rows = batchResults.map(r => {
-      if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
-      const v = r.verdict;
+  function renderResearchTable(){
+    const wrap = $('researchResultsWrap');
+    if (!researchResults.length){ wrap.innerHTML = ''; return; }
+    const rows = researchResults.map(r => {
+      if (r.status === 'running') return `<tr class="running"><td colspan="8">${r.label} — fetching/analyzing…</td></tr>`;
+      if (!r.gapSize && !r.sweep) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="6">Not enough spikes detected to compute statistics.</td></tr>`;
+      const gs = r.gapSize, sw = r.sweep;
+      const lift = (sw && sw.spikeRate!=null && sw.baselineRate>0) ? sw.spikeRate/sw.baselineRate : null;
       return `<tr>
-        <td>${r.symLabel}</td><td>${r.stratLabel}</td><td>${r.tfLabel}</td>
-        <td>${r.n}</td>
-        <td>${r.n ? r.winRate.toFixed(1)+'%' : '—'}</td>
-        <td class="${r.avgR>0?'pos':r.avgR<0?'neg':''}">${r.n ? (r.avgR>=0?'+':'')+r.avgR.toFixed(3)+'R' : '—'}</td>
-        <td>${r.episodes==null?'—':r.episodes}</td>
-        <td class="${r.episodeAvg>0?'pos':r.episodeAvg<0?'neg':''}">${r.episodeAvg==null?'—':(r.episodeAvg>=0?'+':'')+r.episodeAvg.toFixed(3)+'R'}</td>
-        <td><span class="batch-verdict ${v.cls}">${v.text}</span></td>
+        <td>${r.label}</td>
+        <td>${r.candleCount}</td>
+        <td>${r.spikeCount}</td>
+        <td>${gs && gs.r!=null ? gs.r.toFixed(2) : '—'}</td>
+        <td>${gs ? gs.n : '—'}</td>
+        <td>${sw && sw.spikeRate!=null ? (sw.spikeRate*100).toFixed(1)+'%' : '—'}</td>
+        <td>${sw && sw.baselineRate!=null ? (sw.baselineRate*100).toFixed(1)+'%' : '—'}</td>
+        <td class="${lift>1.1?'pos':lift!=null&&lift<0.9?'neg':''}">${lift!=null ? lift.toFixed(2)+'×' : '—'}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="batch-table"><thead><tr>
-      <th>Symbol</th><th>Strategy</th><th>TF</th><th>Signals</th><th>Win%</th><th>Avg R</th><th>Episodes</th><th>Episode Avg R</th><th>Verdict</th>
+      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Gap↔size r</th><th>Pairs n</th><th>Sweep rate at spikes</th><th>Baseline sweep rate</th><th>Sweep lift</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   }
-  function handleBatchResult(item, trades, hist, meta){
-    const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
-    const m = computeAdvancedMetrics(trades);
-    const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
-    const idx = batchResults.findIndex(r => r.key === item.key);
-    const row = {
-      key: item.key, status:'done',
-      symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
-      tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
-      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict
-    };
-    if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
-    renderBatchTable();
-    runNextBatchItem();
+  function handleResearchResult(item, candles){
+    const direction = item.sym.startsWith('BOOM') ? 'up' : 'down';
+    const spikes = detectSpikes(candles, direction);
+    const gapSize = computeGapSizeCorrelation(spikes, candles);
+    const sweep = computeLiquiditySweepCorrelation(spikes, candles, 5);
+    const idx = researchResults.findIndex(r => r.key === item.sym);
+    const row = {key:item.sym, status:'done', label:item.label, candleCount:candles.length, spikeCount:spikes.length, gapSize, sweep};
+    if (idx>=0) researchResults[idx] = row; else researchResults.push(row);
+    renderResearchTable();
+    runNextResearchItem();
   }
-  function runNextBatchItem(){
-    if (batchStopRequested || !batchQueue.length){
-      batchRunning = false;
-      $('btnRunBatch').disabled = false;
-      $('btnStopBatch').disabled = true;
-      $('batchProgress').textContent = !batchQueue.length ? 'Done.' : 'Stopped.';
+  function runNextResearchItem(){
+    if (researchStopRequested || !researchQueue.length){
+      researchRunning = false;
+      $('btnRunResearch').disabled = false;
+      $('btnStopResearch').disabled = true;
+      $('researchProgress').textContent = !researchQueue.length ? 'Done.' : 'Stopped.';
       return;
     }
     if (!ws || ws.readyState !== 1){
-      $('batchProgress').textContent = 'Lost connection — stopped.';
-      batchRunning = false;
-      $('btnRunBatch').disabled = false;
-      $('btnStopBatch').disabled = true;
+      $('researchProgress').textContent = 'Lost connection — stopped.';
+      researchRunning = false;
+      $('btnRunResearch').disabled = false;
+      $('btnStopResearch').disabled = true;
       return;
     }
-    const item = batchQueue.shift();
-    const done = batchResults.filter(r=>r.status==='done').length;
-    $('batchProgress').textContent = `Running ${symbolLabel(item.sym)} · ${strategyLabelFor(item.strat)} — ${done} done, ${batchQueue.length} queued…`;
-    batchResults.push({key:item.key, status:'running', symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat)});
-    renderBatchTable();
-    startBacktestFetch(item.sym, item.strat, item.tf, (trades, hist, meta) => handleBatchResult(item, trades, hist, meta));
+    const item = researchQueue.shift();
+    const done = researchResults.filter(r=>r.status==='done').length;
+    $('researchProgress').textContent = `Running ${item.label} — ${done} done, ${researchQueue.length} queued…`;
+    researchResults.push({key:item.sym, status:'running', label:item.label});
+    renderResearchTable();
+    const pages = Number($('researchPages').value);
+    startResearchFetch(item.sym, pages, (candles) => handleResearchResult(item, candles));
   }
-  function runBatchScan(){
-    if (!ws || ws.readyState !== 1 || batchRunning) return;
-    const strats = Array.from(document.querySelectorAll('.batchStrat:checked')).map(el => el.value);
-    const syms = Array.from(document.querySelectorAll('.batchSym:checked')).map(el => el.value);
-    if (!strats.length || !syms.length) return;
-    batchQueue = [];
-    for (const sym of syms) for (const strat of strats) batchQueue.push({sym, strat, tf: curTf, key: sym+'|'+strat});
-    batchResults = [];
-    batchStopRequested = false;
-    batchRunning = true;
-    $('btnRunBatch').disabled = true;
-    $('btnStopBatch').disabled = false;
-    renderBatchTable();
-    runNextBatchItem();
+  function runResearchScan(){
+    if (!ws || ws.readyState !== 1 || researchRunning) return;
+    const syms = Array.from(document.querySelectorAll('.researchSym:checked')).map(el => ({sym: el.value, label: el.dataset.label}));
+    if (!syms.length) return;
+    researchQueue = syms.slice();
+    researchResults = [];
+    researchStopRequested = false;
+    researchRunning = true;
+    $('btnRunResearch').disabled = true;
+    $('btnStopResearch').disabled = false;
+    renderResearchTable();
+    runNextResearchItem();
   }
-  $('btnRunBatch').addEventListener('click', runBatchScan);
-  $('btnStopBatch').addEventListener('click', () => { batchStopRequested = true; $('batchProgress').textContent = 'Stopping after current item…'; });
-  populateBatchChecks();
+  $('btnRunResearch').addEventListener('click', runResearchScan);
+  $('btnStopResearch').addEventListener('click', () => { researchStopRequested = true; $('researchProgress').textContent = 'Stopping after current item…'; });
+  populateResearchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
