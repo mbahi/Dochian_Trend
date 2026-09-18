@@ -316,9 +316,16 @@
       <button class="tbtn" id="btnStopSpike" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
       <span id="spikeProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
     </div>
+    <div class="ticket-actions" style="margin-top:6px">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center">Hunt/Fade stop: ATR(14)×</span>
+      <input type="number" id="huntSlMult" value="2.0" min="0.1" max="10" step="0.1" style="width:60px">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--faint);align-self:center">affects the single-value Hunt/Fade tables on the next run — see the sweep tables below for the full picture across stop sizes, not just this one</span>
+    </div>
     <div id="spikeResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
     <div id="huntResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
     <div id="fadeResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
+    <div id="huntSweepWrap" style="margin-top:10px;overflow-x:auto"></div>
+    <div id="fadeSweepWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="rulepanel" id="mrParamsRow" style="display:none;margin-bottom:12px">
@@ -1175,9 +1182,19 @@
     BOOM1000:  { spreadPrice:1.4808, swapPctYear:-29 },
     CRASH1000: { spreadPrice:0.4812, swapPctYear:-18 }
   };
-  // Stop distance: a plain ATR(14)×2.0 stop, the exact convention this app
-  // already uses for Trend Following (see ATR_SL_MULT above) — reused as-is
-  // rather than a fresh number picked for this engine.
+  // Stop distance: ATR(14)×HUNT_SL_MULT. Deliberately a SEPARATE mutable
+  // variable from Trend Following's ATR_SL_MULT const (default value copied
+  // from it, 2.0, but adjustable independently) rather than reusing that
+  // const directly — user-adjustable via the Spike Analysis panel, because
+  // stop placement genuinely can determine whether an otherwise-real signal
+  // is tradeable, and a single hardcoded value can't rule that out on its
+  // own. The sensitivity sweep table (computeSweep/renderSweepTable below)
+  // exists specifically so that control doesn't become "try values until
+  // one looks good": it runs the SAME backtest across a fixed grid of
+  // multipliers every time and shows the whole curve, so a favorable-
+  // looking single value can't be mistaken for a real edge if the rest of
+  // the curve doesn't support it. Read the sweep, not just the slider.
+  let HUNT_SL_MULT = 2.0;
   //
   // The first version of this engine sized the stop at 1.2x the measured
   // P90 grind instead, on the theory that surviving the worst 90% of
@@ -1223,9 +1240,11 @@
   // every other part of this engine unchanged (spike detection is always
   // done in the real, physical spike direction; only the traded side
   // flips). Deliberately not a new, separately-tuned strategy: same detect/
-  // stop/exit/cost mechanics, same ATR_SL_MULT, evaluated once as designed.
-  function simulateHuntSpike(candles, direction, costs, mode){
+  // stop/exit/cost mechanics regardless of mode or slMult — only which side
+  // is traded and how wide the stop is change; entry/exit rules don't.
+  function simulateHuntSpike(candles, direction, costs, mode, slMult){
     mode = mode || 'hunt';
+    slMult = slMult!=null ? slMult : HUNT_SL_MULT;
     const posDir = mode==='fade' ? (direction==='up' ? 'down' : 'up') : direction;
     const spikes = detectSpikes(candles, direction);
     const grind = computeGrindStats(spikes, candles, direction);
@@ -1253,7 +1272,7 @@
     for (const { prevIdx, curIdx, atrVal } of cycles){
       if (atrVal < atrFloor) continue;
       const entryPrice = candles[prevIdx].close;
-      const slDistance = ATR_SL_MULT * atrVal;
+      const slDistance = slMult * atrVal;
       if (!slDistance || slDistance <= 0) continue;
       const slPrice = posDir==='up' ? entryPrice - slDistance : entryPrice + slDistance;
       let stopIndex = -1;
@@ -2466,15 +2485,50 @@
   function renderHuntTable(){
     renderModeTable('huntResultsWrap', huntResults,
       'Hunt-the-Spike backtest (real spread',
-      `Enters after each detected spike, holds to the next spike or a stop sized at ATR(14)×${ATR_SL_MULT} — the same convention Trend Following uses elsewhere in this app. (An earlier version sized the stop off the measured P90 grind instead; real data showed that stop was consistently larger than the typical winning cycle's payout, producing a poor risk:reward despite near-50% win rates — see the code comment above simulateHuntSpike for the full read.) Costs are the real spread read from the live MT5 ticket (see prior table); swap is included only where its rate was actually confirmed from the Specification panel, and approximated as a continuous per-day charge over the true holding time rather than modeling exact rollover timestamps — averages out correctly across many episodes even though any single trade's real swap hits in discrete daily charges, not smoothly. Verdict uses the same 100+ episode, consistent-split-half bar as every other strategy in this app.`,
+      `Enters after each detected spike, holds to the next spike or a stop sized at ATR(14)×${HUNT_SL_MULT} (adjustable above — default copied from Trend Following's own ATR_SL_MULT convention). (An earlier version sized the stop off the measured P90 grind instead; real data showed that stop was consistently larger than the typical winning cycle's payout, producing a poor risk:reward despite near-50% win rates — see the code comment above simulateHuntSpike for the full read.) Costs are the real spread read from the live MT5 ticket (see prior table); swap is included only where its rate was actually confirmed from the Specification panel, and approximated as a continuous per-day charge over the true holding time rather than modeling exact rollover timestamps — averages out correctly across many episodes even though any single trade's real swap hits in discrete daily charges, not smoothly. Verdict uses the same 100+ episode, consistent-split-half bar as every other strategy in this app. See the sensitivity sweep below before trusting any single value here — it shows this same backtest across a full range of stop sizes, not just the one currently selected.`,
       HUNT_FADE_COLS);
   }
   function renderFadeTable(){
     renderModeTable('fadeResultsWrap', fadeResults,
       'Fade-the-Grind backtest (real spread',
-      `The mirror image of Hunt-the-Spike above: enters AGAINST the guaranteed spike direction right after a spike, betting on the grind instead — profits while price drifts the "wrong" way, takes the loss when the next spike arrives. Same detection, same ATR(14)×${ATR_SL_MULT} stop, same real costs, same 100+ episode verdict bar — only which side of the cycle is traded differs, evaluated once as designed rather than tuned toward either result.`,
+      `The mirror image of Hunt-the-Spike above: enters AGAINST the guaranteed spike direction right after a spike, betting on the grind instead — profits while price drifts the "wrong" way, takes the loss when the next spike arrives. Same detection, same ATR(14)×${HUNT_SL_MULT} stop, same real costs, same 100+ episode verdict bar — only which side of the cycle is traded differs, evaluated once as designed rather than tuned toward either result.`,
       HUNT_FADE_COLS);
   }
+  // Stop-sensitivity sweep: the direct answer to "maybe the signal is real
+  // but the stop placement is the problem" — runs the identical Hunt/Fade
+  // backtest across a fixed grid of stop multipliers per symbol, using the
+  // same already-fetched candles, so the WHOLE curve is visible at once
+  // instead of one hand-picked (or slider-picked) value. A single favorable
+  // point on a curve that's flat-to-negative everywhere else is noise, not
+  // an edge — this table is what tells the difference.
+  const SWEEP_GRID = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0];
+  function computeSweep(candles, direction, costs, mode){
+    return SWEEP_GRID.map(mult => {
+      const { trades } = simulateHuntSpike(candles, direction, costs, mode, mult);
+      const m = trades.length ? computeHuntMetrics(trades) : null;
+      return { mult, episodeAvg: m ? m.episodeAvg : null, ne: m ? m.ne : 0 };
+    });
+  }
+  let huntSweepResults = [], fadeSweepResults = [];
+  function renderSweepTable(wrapId, results, heading){
+    const wrap = $(wrapId);
+    if (!wrap) return;
+    if (!results.length){ wrap.innerHTML = ''; return; }
+    const rows = results.map(r => {
+      const cells = r.points.map(p => {
+        if (p.episodeAvg==null) return `<td>—</td>`;
+        const cls = p.episodeAvg>0?'pos':p.episodeAvg<0?'neg':'';
+        return `<td class="${cls}">${p.episodeAvg.toFixed(2)}R</td>`;
+      }).join('');
+      return `<tr><td>${r.label}</td>${cells}</tr>`;
+    }).join('');
+    const headCols = SWEEP_GRID.map(m => `<th>×${m}</th>`).join('');
+    wrap.innerHTML = `<h4 style="margin:14px 0 6px">${heading}</h4>
+    <div class="btmeta" style="margin-bottom:8px">Episode avg R (capped) at each ATR stop multiplier, same symbols, same real costs, same data already fetched above — nothing new pulled over the network. Look for a whole region that holds up positive, not a single cell.</div>
+    <table class="batch-table"><thead><tr><th>Symbol</th>${headCols}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function renderHuntSweepTable(){ renderSweepTable('huntSweepWrap', huntSweepResults, 'Hunt-the-Spike stop-sensitivity sweep'); }
+  function renderFadeSweepTable(){ renderSweepTable('fadeSweepWrap', fadeSweepResults, 'Fade-the-Grind stop-sensitivity sweep'); }
   function populateSpikeChecks(){
     const symDefs = [
       ['BOOM300N','Boom 300'],['BOOM500','Boom 500'],['BOOM600','Boom 600'],['BOOM900','Boom 900'],['BOOM1000','Boom 1000'],
@@ -2541,6 +2595,18 @@
       const fRow = { key:item.sym, label:item.label, costs, metrics:fMetrics, verdict:fVerdict };
       if (fIdx>=0) fadeResults[fIdx] = fRow; else fadeResults.push(fRow);
       renderFadeTable();
+
+      const huntPoints = computeSweep(candles, direction, costs, 'hunt');
+      const hsIdx = huntSweepResults.findIndex(r => r.key === item.sym);
+      const hsRow = { key:item.sym, label:item.label, points:huntPoints };
+      if (hsIdx>=0) huntSweepResults[hsIdx] = hsRow; else huntSweepResults.push(hsRow);
+      renderHuntSweepTable();
+
+      const fadePoints = computeSweep(candles, direction, costs, 'fade');
+      const fsIdx = fadeSweepResults.findIndex(r => r.key === item.sym);
+      const fsRow = { key:item.sym, label:item.label, points:fadePoints };
+      if (fsIdx>=0) fadeSweepResults[fsIdx] = fsRow; else fadeSweepResults.push(fsRow);
+      renderFadeSweepTable();
     }
     runNextSpikeItem();
   }
@@ -2575,6 +2641,8 @@
     spikeResults = [];
     huntResults = [];
     fadeResults = [];
+    huntSweepResults = [];
+    fadeSweepResults = [];
     spikeStopRequested = false;
     spikeRunning = true;
     $('btnRunSpike').disabled = true;
@@ -2582,10 +2650,13 @@
     renderSpikeTable();
     renderHuntTable();
     renderFadeTable();
+    renderHuntSweepTable();
+    renderFadeSweepTable();
     runNextSpikeItem();
   }
   $('btnRunSpike').addEventListener('click', runSpikeAnalysis);
   $('btnStopSpike').addEventListener('click', () => { spikeStopRequested = true; $('spikeProgress').textContent = 'Stopping after current item…'; });
+  $('huntSlMult').addEventListener('input', e => { const v = Number(e.target.value); if (v>0) HUNT_SL_MULT = v; });
   populateSpikeChecks();
 
   // ---------- Batch Scan: run every checked strategy across every checked
