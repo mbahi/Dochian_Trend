@@ -1035,10 +1035,19 @@
   // isolation; the live ticket is unaffected (it always shows both systems
   // independently — see buildTrendTicket's own comment on why).
   let TREND_USE_LAST_TRADE_FILTER = true;
-  // No UI control for these on purpose — this is a one-time diagnostic to
-  // bisect a specific regression, not a permanent feature the page needs a
-  // control for. Flip from the browser console before running Batch Scan,
-  // e.g.: trendToggles.pyramid = false — then re-run, then restore it.
+  // No permanent UI control for these on purpose — this is a one-time
+  // diagnostic to bisect a specific regression, not a feature the page
+  // needs a control for. Two ways to flip them, so it works from a phone
+  // (no console needed) as well as a desktop:
+  //   URL:     add ?pyramid=0 and/or ?ltf=0 and/or ?h4=0 to the page
+  //            address and reload — e.g. index.html?pyramid=0
+  //   Console: trendToggles.pyramid = false, etc.
+  (function applyTrendToggleParams(){
+    const p = new URLSearchParams(location.search);
+    if (p.has('pyramid')) TREND_USE_PYRAMID = p.get('pyramid') !== '0';
+    if (p.has('ltf')) TREND_USE_LAST_TRADE_FILTER = p.get('ltf') !== '0';
+    if (p.has('h4')) TREND_USE_H4_FILTER = p.get('h4') !== '0';
+  })();
   window.trendToggles = {
     get h4filter(){ return TREND_USE_H4_FILTER; }, set h4filter(v){ TREND_USE_H4_FILTER = !!v; },
     get pyramid(){ return TREND_USE_PYRAMID; }, set pyramid(v){ TREND_USE_PYRAMID = !!v; },
