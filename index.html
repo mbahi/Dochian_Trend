@@ -253,7 +253,7 @@
 
   <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
     <h3>Batch Scan</h3>
-    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error.</div>
+    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo.</div>
     <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
     <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
     <div class="ticket-actions">
@@ -1192,6 +1192,109 @@
     return { n: spikes.length, spikeRate, baselineRate, eventCount: events.length, windowBars };
   }
 
+  // ---------- Spike Timing: two strategies built on the CV finding from
+  // Boom/Crash Research (Gap CV 0.74-0.80 across all 10 instruments — below
+  // 1.0, i.e. NOT memoryless: once more time has passed than the average
+  // gap, a spike is more likely imminent, not equally likely at every
+  // instant). Neither is a retest of Hunt-the-Spike/Fade-the-Grind (both
+  // conclusively negative across a full stop-sensitivity sweep) — those
+  // entered/exited on a fixed schedule blind to elapsed time within the
+  // cycle; these two use the elapsed-time signal directly.
+  //
+  // Late-Cycle Entry: waits until SPIKE_ENTRY_FRACTION of the running mean
+  // gap has elapsed since the last spike before entering WITH the spike
+  // direction — skipping the long, low-hazard early stretch Hunt-the-Spike
+  // paid full grind cost to sit through, entering only once the hazard is
+  // genuinely elevated.
+  //
+  // Bounded-Time Fade: enters AGAINST the spike direction right after a
+  // spike resolves (Fade-the-Grind's entry point), but exits at
+  // SPIKE_FADE_EXIT_FRACTION of the running mean gap instead of holding
+  // through the whole cycle. Fade-the-Grind's failure mode was surviving
+  // into the high-hazard late stretch where the spike lands on it — this
+  // is bounded out of that stretch entirely.
+  //
+  // Both track the running mean gap walk-forward (only gaps FULLY completed
+  // before the current bar feed the average — no lookahead) and use the
+  // same SL-then-time-stop precedence every other engine here uses.
+  const SPIKE_ENTRY_FRACTION = 0.75, SPIKE_FADE_EXIT_FRACTION = 0.60;
+  const SPIKE_SL_ATR_MULT = 2.0, SPIKE_FADE_SL_ATR_MULT = 1.5;
+  const SPIKE_MAX_WAIT_MULT = 2.0, SPIKE_MIN_GAPS_FOR_STATS = 5;
+  function spikeDirectionFor(sym){
+    if (sym.startsWith('BOOM')) return 'up';
+    if (sym.startsWith('CRASH')) return 'down';
+    return null;
+  }
+  function simulateSpikeTiming(candles, direction, mode){
+    const spikes = detectSpikes(candles, direction);
+    const trades = [];
+    if (spikes.length < SPIKE_MIN_GAPS_FOR_STATS + 1) return trades;
+    const spikeAtIndex = new Set(spikes.map(s => s.index));
+    const posDir = mode==='spike_late'
+      ? (direction==='up' ? 'bull' : 'bear')
+      : (direction==='up' ? 'bear' : 'bull');
+    let spikePtr = 0, enteredThisCycle = false, openPos = null;
+    const gaps = [];
+    for (let i = spikes[0].index+1; i < candles.length; i++){
+      // Advance the walk-forward gap history only past spikes strictly
+      // before this bar — a spike AT this bar isn't "known" until its
+      // candle closes, matched separately via spikeAtIndex below.
+      while (spikePtr+1 < spikes.length && spikes[spikePtr+1].index < i){
+        gaps.push(spikes[spikePtr+1].index - spikes[spikePtr].index);
+        spikePtr++;
+        enteredThisCycle = false;
+      }
+      const elapsed = i - spikes[spikePtr].index;
+      const c = candles[i];
+
+      if (openPos){
+        const hitSL = openPos.dir==='bull' ? c.low <= openPos.sl : c.high >= openPos.sl;
+        if (hitSL){
+          trades.push(Object.assign({}, openPos.ticket, { result:'SL', R: -1-spreadCostR }));
+          openPos = null;
+        } else if (mode==='spike_late' && spikeAtIndex.has(i)){
+          const pnl = openPos.dir==='bull' ? (c.close-openPos.entry) : (openPos.entry-c.close);
+          trades.push(Object.assign({}, openPos.ticket, { result:'SPIKE_HIT', timeStop:true, R: pnl/openPos.risk - spreadCostR }));
+          openPos = null;
+        } else {
+          const boundMult = mode==='spike_late' ? SPIKE_MAX_WAIT_MULT : SPIKE_FADE_EXIT_FRACTION;
+          const meanGap = gaps.length ? gaps.reduce((a,b)=>a+b,0)/gaps.length : null;
+          if (meanGap && elapsed >= boundMult*meanGap){
+            const pnl = openPos.dir==='bull' ? (c.close-openPos.entry) : (openPos.entry-c.close);
+            trades.push(Object.assign({}, openPos.ticket, { result:'TIME_STOP', timeStop:true, R: pnl/openPos.risk - spreadCostR }));
+            openPos = null;
+          }
+        }
+      }
+
+      if (!openPos && !enteredThisCycle && gaps.length >= SPIKE_MIN_GAPS_FOR_STATS){
+        const meanGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+        const wantEntry = mode==='spike_late'
+          ? elapsed/meanGap >= SPIKE_ENTRY_FRACTION
+          : elapsed === 1;
+        if (wantEntry){
+          const atrVal = computeATR(candles, i-1, 14);
+          const slMult = mode==='spike_late' ? SPIKE_SL_ATR_MULT : SPIKE_FADE_SL_ATR_MULT;
+          const risk = atrVal ? atrVal*slMult : 0;
+          if (risk > 0){
+            const entry = c.close;
+            const sl = posDir==='bull' ? entry-risk : entry+risk;
+            openPos = {
+              dir: posDir, entry, sl, risk,
+              ticket: {
+                index: i, dir: posDir,
+                label: mode==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade',
+                entry, sl, tp1: sl, tp2: sl, rr1: 0, rr2: 0, decimals: 2
+              }
+            };
+          }
+          enteredThisCycle = true;
+        }
+      }
+    }
+    return trades;
+  }
+
   function donchianChannel(c, uptoIndex, period){
     if (uptoIndex < period-1) return null;
     let hi = -Infinity, lo = Infinity;
@@ -1991,7 +2094,7 @@
     if (t.timeStop) return Math.max(-1-spreadCostR, Math.min(t.R, cap));
     return 0;
   }
-  function computeAdvancedMetrics(trades){
+  function computeAdvancedMetrics(trades, gapBars){
     const closed = trades.filter(t => t.result !== 'open');
     const n = closed.length;
     if (!n) return null;
@@ -2006,7 +2109,17 @@
     for (const t of chrono){ cum+=t.R; if (cum>peak) peak=cum; const dd=peak-cum; if (dd>maxDD) maxDD=dd; }
 
     const CAP = 3.0;
-    const episodes = collapseEpisodes(closed, 10);
+    // gapBars defaults to 10 — collapsing signals within 10 bars of each
+    // other assumes they're re-detections of the SAME underlying move
+    // (true of Mean Reversion/Trend Following's ticket generation, which
+    // can re-fire on adjacent bars while price sits near the same extreme
+    // or channel). Spike Timing's trades are already sequential, non-
+    // overlapping round-trips by construction (simulateSpikeTiming never
+    // opens a second position before the first closes) — collapsing those
+    // the same way would flatten genuinely independent trades down to
+    // near-1 "episode" just because real Boom/Crash spike cycles are often
+    // well under 10 bars apart. Callers pass gapBars=0 for those strategies.
+    const episodes = collapseEpisodes(closed, gapBars==null ? 10 : gapBars);
     const ne = episodes.length;
     const episodeCapped = episodes.map(t=>cappedTradeR(t,CAP));
     const episodeTotal = episodeCapped.reduce((s,v)=>s+v,0);
@@ -2086,7 +2199,8 @@
     // stats above — they'd otherwise quietly leak into the "Corrected"
     // episode stats and split-half verdict.
     const tradesForMetrics = meta.strat==='meanrev' ? trades.filter(t => t.result!=='AMBIGUOUS') : trades;
-    const m = computeAdvancedMetrics(tradesForMetrics);
+    const isSpikeStrat = meta.strat==='spike_late' || meta.strat==='spike_fade';
+    const m = computeAdvancedMetrics(tradesForMetrics, isSpikeStrat ? 0 : 10);
     const verdict = m ? backtestVerdict(m) : {text:'No closed trades to assess', cls:'val-thin'};
 
     const slot = $('backtestslot');
@@ -2247,6 +2361,20 @@
       delete pendingEABacktest[runId];
       return;
     }
+    // Spike Timing (Late-Cycle Entry / Bounded-Time Fade): also a plain
+    // 1m-candle fetch, but with a real position-simulation strategy
+    // attached (simulateSpikeTiming) — Batch Scan only, see startBacktestFetch.
+    if (bucket.kind === 'spike' && bucket.data){
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running spike-timing walk-forward across ${bucket.data.length} 1m bars…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateSpikeTiming(bucket.data, bucket.direction, bucket.strat);
+        const meta = {purpose:'backtest_spike', sym:bucket.sym, tf:60, strat:bucket.strat};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
+        else renderBacktestResults(trades, bucket.data, meta);
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
   }
 
   $('spreadInput').addEventListener('input', e => { spreadCostR = Math.max(0, Number(e.target.value) || 0); savePrefs(); });
@@ -2271,6 +2399,20 @@
       pendingEABacktest[runId] = {kind:'trend', sym, h1_pages:[], h4_pages:[], onComplete};
       requestHistoryPage(sym, 3600,  5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:depth});
       requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'h4', pageIndex:0, pagesWanted:depth});
+      return runId;
+    }
+    if (strat === 'spike_late' || strat === 'spike_fade'){
+      // Boom/Crash only (see spikeDirectionFor) — Batch Scan's queue-builder
+      // already skips this combo for every other symbol before it ever
+      // reaches here. Plain 1m fetch, same depth-scaling formula as the
+      // 'single' branch below with tf=60.
+      const direction = spikeDirectionFor(sym);
+      const rawDepth = Number($('btDepth').value);
+      const depth = Math.min(60, Math.ceil(rawDepth * (3600 / 60)));
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of 1m history for ${symbolLabel(sym)}…</div></div>`;
+      const runId = 'spike' + Date.now() + Math.random().toString(36).slice(2,7);
+      pendingEABacktest[runId] = {kind:'spike', sym, strat, direction, data_pages:[], onComplete};
+      requestHistoryPage(sym, 60, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
       return runId;
     }
     // btDepth's labels (~7/14/20 months etc.) are calibrated assuming H1 candles.
@@ -2307,12 +2449,17 @@
   // no math and applies no extra filtering, so a "0 signals" or "no edge"
   // row here is exactly what a manual run would have shown too.
   function strategyLabelFor(s){
-    return s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
+    return s==='meanrev' ? 'Mean Reversion' : s==='trend' ? 'Trend Following'
+      : s==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
-    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following']];
-    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
+    // Late-Cycle Entry / Bounded-Time Fade are unchecked by default — new,
+    // still-unproven strategies that only apply to Boom/Crash symbols (see
+    // spikeDirectionFor); opt in explicitly rather than firing alongside a
+    // routine Mean Reversion/Trend Following run.
+    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
+    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" ${v==='spike_late'||v==='spike_fade'?'':'checked'}> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
     // Default-check the forex/metals majors only — a first scan should be
     // fast, and these are the instruments with a real order-book behind
@@ -2345,7 +2492,8 @@
   }
   function handleBatchResult(item, trades, hist, meta){
     const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
-    const m = computeAdvancedMetrics(trades);
+    const isSpikeStrat = item.strat==='spike_late' || item.strat==='spike_fade';
+    const m = computeAdvancedMetrics(trades, isSpikeStrat ? 0 : 10);
     const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
     const idx = batchResults.findIndex(r => r.key === item.key);
     const row = {
@@ -2386,7 +2534,11 @@
     const syms = Array.from(document.querySelectorAll('.batchSym:checked')).map(el => el.value);
     if (!strats.length || !syms.length) return;
     batchQueue = [];
-    for (const sym of syms) for (const strat of strats) batchQueue.push({sym, strat, tf: curTf, key: sym+'|'+strat});
+    for (const sym of syms) for (const strat of strats){
+      const isSpike = strat==='spike_late' || strat==='spike_fade';
+      if (isSpike && !spikeDirectionFor(sym)) continue; // Boom/Crash only — skip silently rather than show a meaningless N/A row
+      batchQueue.push({sym, strat, tf: isSpike ? 60 : curTf, key: sym+'|'+strat});
+    }
     batchResults = [];
     batchStopRequested = false;
     batchRunning = true;
