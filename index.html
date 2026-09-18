@@ -9,7 +9,7 @@
 <style>
   :root{
     --ink:#0b1220; --ledger:#131f33; --ledger2:#0e1826; --line:#24344a;
-    --paper:#eaf1fb; --brass:#c7e2f7; --steel:#5a6472;
+    --paper:#eaf1fb; --brass:#d4af37; --steel:#5a6472;
     --grey-acc:#5a6472; --red-acc:#b5484d; --green-acc:#3f8f6f;
     --text:#e8eef7; --dim:#93a4bd; --faint:#5a6472;
     --serif:'Fraunces', serif; --sans:'Inter', -apple-system, sans-serif;
@@ -1596,8 +1596,8 @@
       const cd = visible[i];
       const cx = x(i);
       const up = cd.close >= cd.open;
-      ctx.strokeStyle = up ? '#c7e2f7' : '#5a6472';
-      ctx.fillStyle = up ? '#c7e2f7' : '#5a6472';
+      ctx.strokeStyle = up ? '#d4af37' : '#5a6472';
+      ctx.fillStyle = up ? '#d4af37' : '#5a6472';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, y(cd.high)); ctx.lineTo(cx, y(cd.low)); ctx.stroke();
       const bw = Math.max(2, xw*0.55);
@@ -1609,18 +1609,18 @@
     for (const s of swings){
       const i = s.index - offset;
       if (i<0 || i>=visible.length) continue;
-      ctx.fillStyle = s.type==='high' ? '#c7e2f7' : '#5a6472';
+      ctx.fillStyle = s.type==='high' ? '#d4af37' : '#5a6472';
       ctx.beginPath(); ctx.arc(x(i), y(s.price), 2.2, 0, Math.PI*2); ctx.fill();
     }
 
     for (const ev of structure.events){
       const i = ev.index - offset;
       if (i<0 || i>=visible.length) continue;
-      ctx.strokeStyle = ev.direction==='bull' ? '#c7e2f7' : '#5a6472';
+      ctx.strokeStyle = ev.direction==='bull' ? '#d4af37' : '#5a6472';
       ctx.setLineDash([3,3]);
       ctx.beginPath(); ctx.moveTo(0, y(ev.price)); ctx.lineTo(W, y(ev.price)); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = ev.type==='CHoCH' ? '#b5484d' : (ev.direction==='bull'?'#c7e2f7':'#5a6472');
+      ctx.fillStyle = ev.type==='CHoCH' ? '#b5484d' : (ev.direction==='bull'?'#d4af37':'#5a6472');
       ctx.fillText(ev.type, Math.min(x(i)+4, W-32), y(ev.price)-4);
     }
   }
@@ -2313,7 +2313,7 @@
       const cMax = Math.max(...curve, 0), cMin = Math.min(...curve, 0);
       const range = (cMax-cMin) || 1;
       const y = v => H - ((v-cMin)/range)*H;
-      ctx.strokeStyle = totalR>=0 ? '#c7e2f7' : '#5a6472';
+      ctx.strokeStyle = totalR>=0 ? '#d4af37' : '#5a6472';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       curve.forEach((v,i) => { const px = i/(curve.length-1)*W; i===0 ? ctx.moveTo(px,y(v)) : ctx.lineTo(px,y(v)); });
