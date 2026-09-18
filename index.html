@@ -1376,6 +1376,26 @@
   }
 
 
+  // Separate from updateSession (which only runs once a minute) so this
+  // badge can be refreshed on every price tick via renderAll, same as the
+  // Trend Following card's own live ticket. Both read the identical
+  // trendDirectionTF(h4, ..., TREND_LOOKBACK) call — previously only this
+  // badge was gated behind the 60s session timer, so whenever H4 price sat
+  // near its own 200-bar SMA (the actual, common case, not an edge case),
+  // this header could show a stale trend read that visibly contradicted
+  // the live-computed ticket directly below it.
+  function updateTrendFilterBadge(){
+    const h4 = candlesByTf[14400];
+    if (h4 && h4.length > TREND_LOOKBACK){
+      const dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
+      if (dir4 === 1){ $('trendtxt').textContent = 'Trend Filter: Bullish (H4)'; $('trenddot').classList.add('live'); }
+      else if (dir4 === -1){ $('trendtxt').textContent = 'Trend Filter: Bearish (H4)'; $('trenddot').classList.add('live'); }
+      else { $('trendtxt').textContent = 'Trend Filter: flat/no clear trend'; $('trenddot').classList.remove('live'); }
+    } else {
+      $('trendtxt').textContent = 'Trend Filter: — (waiting on H4 history)';
+      $('trenddot').classList.remove('live');
+    }
+  }
   function updateSession(){
     const h = new Date().getUTCHours();
     let label;
@@ -1387,17 +1407,7 @@
     else label='off-session';
     $('sesstxt').textContent = label;
     $('sessdot').classList.toggle('live', inAsia||inLondon||inNY);
-
-    const h4 = candlesByTf[14400];
-    if (h4 && h4.length > TREND_LOOKBACK){
-      const dir4 = trendDirectionTF(h4, h4.length-1, TREND_LOOKBACK);
-      if (dir4 === 1){ $('trendtxt').textContent = 'Trend Filter: Bullish (H4)'; $('trenddot').classList.add('live'); }
-      else if (dir4 === -1){ $('trendtxt').textContent = 'Trend Filter: Bearish (H4)'; $('trenddot').classList.add('live'); }
-      else { $('trendtxt').textContent = 'Trend Filter: flat/no clear trend'; $('trenddot').classList.remove('live'); }
-    } else {
-      $('trendtxt').textContent = 'Trend Filter: — (waiting on H4 history)';
-      $('trenddot').classList.remove('live');
-    }
+    updateTrendFilterBadge();
   }
 
   // ---------- notification watcher (any strategy, any selected timeframes) ----------
@@ -1458,6 +1468,7 @@
 
   function renderAll(){
     checkHTFNotifications();
+    updateTrendFilterBadge();
     const candles = candlesByTf[curTf];
     renderMTFStrip();
     if (!candles || !candles.length) return;
