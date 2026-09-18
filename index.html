@@ -50,12 +50,6 @@
   .mtf-cell .bias{font-size:13px;font-weight:600;margin-top:2px}
   .mtf-cell .bias.bull{color:var(--brass)} .mtf-cell .bias.bear{color:var(--steel)} .mtf-cell .bias.neutral{color:var(--faint)}
 
-  .batch-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
-  .batch-table th{text-align:left;color:var(--faint);font-weight:500;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em}
-  .batch-table td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--dim)}
-  .batch-table td.pos{color:var(--green-acc)} .batch-table td.neg{color:var(--red-acc)}
-  .batch-table tr.running td{color:var(--brass)}
-  #researchSymChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
 
   .quote-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px}
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -235,7 +229,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
-      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. See Batch Scan for the backing evidence (10/10 Boom/Crash instruments).">Bounded-Time Fade (Boom/Crash)</button>
+      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence across all 10 Boom/Crash instruments.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -249,25 +243,6 @@
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
-  </div>
-
-  <div class="btpanel" id="researchPanel" style="margin-bottom:12px">
-    <h3>Boom/Crash Research</h3>
-    <div class="btmeta">Two measurements, not a strategy: (1) does a longer wait before a spike predict a bigger spike (Pearson r between gap length and next spike's ATR-normalized size); (2) does a spike tend to follow a swing-structure liquidity sweep (BOS/CHoCH) more than chance — "sweep rate at spikes" vs. the same rate measured at every ordinary bar as the honest baseline. Sweep lift &gt;1× means spikes cluster after sweeps more than random timing would predict; ~1× means no relationship.</div>
-    <div id="researchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim);padding:8px;border:1px solid var(--line);border-radius:6px"></div>
-    <div class="ticket-actions">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center">history:</span>
-      <select id="researchPages" title="How much 1-minute history to scan per instrument">
-        <option value="1">~3.5 days</option>
-        <option value="3" selected>~10 days</option>
-        <option value="6">~21 days</option>
-        <option value="12">~42 days</option>
-      </select>
-      <button class="tbtn" id="btnRunResearch" style="background:var(--brass);color:#0f1826">Run Research</button>
-      <button class="tbtn" id="btnStopResearch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
-      <span id="researchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
-    </div>
-    <div id="researchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
@@ -1089,15 +1064,10 @@
     return sum/period;
   }
 
-  // ---------- Boom/Crash research: two new measurements, not a strategy ----------
-  // Not a re-run of Hunt-the-Spike/Fade-the-Grind (both conclusively negative
-  // across a full stop-sensitivity sweep this session) — these check two
-  // specific, previously-untested claims before any new strategy is built:
-  // (1) does a longer wait between spikes predict a bigger next spike (a
-  // "coiled spring" effect), and (2) does Boom/Crash "respect" swing-
-  // structure liquidity sweeps (BOS/CHoCH) more than chance would predict.
-  // Direction is inferred from the symbol name (BOOM* spikes up, CRASH*
-  // spikes down) — documented product behavior, not something this infers.
+  // ---------- Spike detection: shared by Spike Timing's live/backtest paths
+  // below (simulateSpikeTiming, buildSpikeFadeTicketLive). Direction is
+  // inferred from the symbol name (BOOM* spikes up, CRASH* spikes down) —
+  // documented product behavior, not something this infers.
   const SPIKE_BASELINE_LOOKBACK = 20, SPIKE_THRESHOLD_MULT = 4, SPIKE_MIN_GAP_CANDLES = 3;
   function detectSpikes(c, direction){
     const spikes = [];
@@ -1122,64 +1092,6 @@
     }
     return collapsed;
   }
-  // Claim #1: does the gap BEFORE a spike predict that spike's SIZE (a
-  // "coiled spring" effect — longer wait, bigger release)? Pearson
-  // correlation between each gap (minutes since the prior spike) and the
-  // magnitude of the spike that ended it (in ATR units, so it's comparable
-  // across instruments with very different price scales).
-  function computeGapSizeCorrelation(spikes, c){
-    if (spikes.length < 5) return null;
-    const pairs = [];
-    for (let i=1; i<spikes.length; i++){
-      const gapMin = (spikes[i].epoch - spikes[i-1].epoch)/60;
-      const atrVal = computeATR(c, Math.max(14, spikes[i].index-1), 14);
-      if (!atrVal) continue;
-      pairs.push({ gapMin, magATR: spikes[i].displacement/atrVal });
-    }
-    if (pairs.length < 5) return null;
-    const n = pairs.length;
-    const meanGap = pairs.reduce((s,p)=>s+p.gapMin,0)/n;
-    const meanMag = pairs.reduce((s,p)=>s+p.magATR,0)/n;
-    let cov=0, varGap=0, varMag=0;
-    for (const p of pairs){
-      const dg = p.gapMin-meanGap, dm = p.magATR-meanMag;
-      cov += dg*dm; varGap += dg*dg; varMag += dm*dm;
-    }
-    const r = (varGap>0 && varMag>0) ? cov/Math.sqrt(varGap*varMag) : null;
-    return { n, r, meanGap, meanMag };
-  }
-  // Claim #2: does a spike tend to arrive shortly after a swing-structure
-  // liquidity sweep (a BOS/CHoCH event — the same computeSwings/
-  // computeStructureEvents machinery already driving the chart, reused
-  // as-is, not reinvented)? Compares the rate of "a BOS/CHoCH fired in the
-  // `windowBars` bars right before this spike" against the SAME rate
-  // measured at every ordinary bar in the series — the honest baseline a
-  // real effect has to beat, not just "sometimes there's a sweep nearby."
-  function computeLiquiditySweepCorrelation(spikes, c, windowBars){
-    windowBars = windowBars || 5;
-    if (spikes.length < 5 || c.length < windowBars+10) return null;
-    const swings = computeSwings(c);
-    const { events } = computeStructureEvents(c, swings);
-    if (!events.length) return { n: spikes.length, spikeRate: null, baselineRate: null, eventCount: 0, windowBars };
-    const hasEvent = new Uint8Array(c.length);
-    for (const e of events) hasEvent[e.index] = 1;
-    function sweptBefore(idx){
-      const lo = Math.max(0, idx - windowBars);
-      for (let j = lo; j < idx; j++) if (hasEvent[j]) return true;
-      return false;
-    }
-    let spikesWithSweep = 0;
-    for (const s of spikes) if (sweptBefore(s.index)) spikesWithSweep++;
-    const spikeRate = spikesWithSweep / spikes.length;
-    let baselineHits = 0, baselineTotal = 0;
-    for (let i = windowBars; i < c.length; i++){
-      baselineTotal++;
-      if (sweptBefore(i)) baselineHits++;
-    }
-    const baselineRate = baselineTotal ? baselineHits/baselineTotal : null;
-    return { n: spikes.length, spikeRate, baselineRate, eventCount: events.length, windowBars };
-  }
-
   // ---------- Spike Timing: two strategies built on the CV finding from
   // Boom/Crash Research (Gap CV 0.74-0.80 across all 10 instruments — below
   // 1.0, i.e. NOT memoryless: once more time has passed than the average
@@ -1588,7 +1500,7 @@
           <div class="tfield"><div class="k">Exit by</div><div class="v">~${t.exitAtMin.toFixed(0)}m</div></div>
           <div class="tfield"><div class="k">Elapsed / mean gap</div><div class="v">${t.elapsedMin}m / ${t.meanGapMin.toFixed(0)}m</div></div>
         </div>
-        <div class="ticket-rr">Time-based exit — no fixed price target. Model's real-data win-size distribution: median 1.9-3.2R, see Batch Scan.</div>`
+        <div class="ticket-rr">Time-based exit — no fixed price target. Model's real-data win-size distribution: median 1.9-3.2R.</div>`
       : `<div class="ticket-grid">
           <div class="tfield"><div class="k">Entry</div><div class="v">${t.entry.toFixed(d)}</div></div>
           <div class="tfield"><div class="k">Stop Loss</div><div class="v">${t.sl.toFixed(d)}</div></div>
@@ -2457,18 +2369,10 @@
       }, 30);
       return;
     }
-    // Boom/Crash research: a plain 1m-candle fetch with no strategy/
-    // simulation attached — hands the merged candle series straight to
-    // the caller, same pattern as every fetch-only research tool this app
-    // has used (the removed Spike Analysis panel worked identically).
-    if (bucket.kind === 'research' && bucket.data){
-      bucket.onComplete(bucket.data);
-      delete pendingEABacktest[runId];
-      return;
-    }
-    // Spike Timing (Late-Cycle Entry / Bounded-Time Fade): also a plain
-    // 1m-candle fetch, but with a real position-simulation strategy
-    // attached (simulateSpikeTiming) — Batch Scan only, see startBacktestFetch.
+    // Spike Timing (Late-Cycle Entry / Bounded-Time Fade): a plain 1m-candle
+    // fetch with a real position-simulation strategy attached
+    // (simulateSpikeTiming) — reached via the interactive "Run Backtest"
+    // button when curStrategy is spike_late/spike_fade, see startBacktestFetch.
     if (bucket.kind === 'spike' && bucket.data){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running spike-timing walk-forward across ${bucket.data.length} 1m bars…</div></div>`;
       setTimeout(() => {
@@ -2544,95 +2448,6 @@
     if (!ws || ws.readyState !== 1) return;
     startBacktestFetch(curSym, curStrategy, curTf);
   });
-
-  // ---------- Boom/Crash research orchestration ----------
-  function startResearchFetch(sym, pages, onComplete){
-    const runId = 'research' + Date.now() + Math.random().toString(36).slice(2,7);
-    pendingEABacktest[runId] = {kind:'research', sym, data_pages:[], onComplete};
-    requestHistoryPage(sym, 60, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:pages});
-    return runId;
-  }
-  let researchQueue = [], researchResults = [], researchRunning = false, researchStopRequested = false;
-  function populateResearchChecks(){
-    const symDefs = [
-      ['BOOM300N','Boom 300'],['BOOM500','Boom 500'],['BOOM600','Boom 600'],['BOOM900','Boom 900'],['BOOM1000','Boom 1000'],
-      ['CRASH300N','Crash 300'],['CRASH500','Crash 500'],['CRASH600','Crash 600'],['CRASH900','Crash 900'],['CRASH1000','Crash 1000']
-    ];
-    $('researchSymChecks').innerHTML = symDefs.map(([v,l]) => `<label><input type="checkbox" class="researchSym" value="${v}" data-label="${l}" checked> ${l}</label>`).join('');
-  }
-  function renderResearchTable(){
-    const wrap = $('researchResultsWrap');
-    if (!researchResults.length){ wrap.innerHTML = ''; return; }
-    const rows = researchResults.map(r => {
-      if (r.status === 'running') return `<tr class="running"><td colspan="8">${r.label} — fetching/analyzing…</td></tr>`;
-      if (!r.gapSize && !r.sweep) return `<tr><td>${r.label}</td><td>${r.candleCount||0}</td><td colspan="6">Not enough spikes detected to compute statistics.</td></tr>`;
-      const gs = r.gapSize, sw = r.sweep;
-      const lift = (sw && sw.spikeRate!=null && sw.baselineRate>0) ? sw.spikeRate/sw.baselineRate : null;
-      return `<tr>
-        <td>${r.label}</td>
-        <td>${r.candleCount}</td>
-        <td>${r.spikeCount}</td>
-        <td>${gs && gs.r!=null ? gs.r.toFixed(2) : '—'}</td>
-        <td>${gs ? gs.n : '—'}</td>
-        <td>${sw && sw.spikeRate!=null ? (sw.spikeRate*100).toFixed(1)+'%' : '—'}</td>
-        <td>${sw && sw.baselineRate!=null ? (sw.baselineRate*100).toFixed(1)+'%' : '—'}</td>
-        <td class="${lift>1.1?'pos':lift!=null&&lift<0.9?'neg':''}">${lift!=null ? lift.toFixed(2)+'×' : '—'}</td>
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `<table class="batch-table"><thead><tr>
-      <th>Symbol</th><th>1m candles</th><th>Spikes</th><th>Gap↔size r</th><th>Pairs n</th><th>Sweep rate at spikes</th><th>Baseline sweep rate</th><th>Sweep lift</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
-  }
-  function handleResearchResult(item, candles){
-    const direction = item.sym.startsWith('BOOM') ? 'up' : 'down';
-    const spikes = detectSpikes(candles, direction);
-    const gapSize = computeGapSizeCorrelation(spikes, candles);
-    const sweep = computeLiquiditySweepCorrelation(spikes, candles, 5);
-    const idx = researchResults.findIndex(r => r.key === item.sym);
-    const row = {key:item.sym, status:'done', label:item.label, candleCount:candles.length, spikeCount:spikes.length, gapSize, sweep};
-    if (idx>=0) researchResults[idx] = row; else researchResults.push(row);
-    renderResearchTable();
-    runNextResearchItem();
-  }
-  function runNextResearchItem(){
-    if (researchStopRequested || !researchQueue.length){
-      researchRunning = false;
-      $('btnRunResearch').disabled = false;
-      $('btnStopResearch').disabled = true;
-      $('researchProgress').textContent = !researchQueue.length ? 'Done.' : 'Stopped.';
-      return;
-    }
-    if (!ws || ws.readyState !== 1){
-      $('researchProgress').textContent = 'Lost connection — stopped.';
-      researchRunning = false;
-      $('btnRunResearch').disabled = false;
-      $('btnStopResearch').disabled = true;
-      return;
-    }
-    const item = researchQueue.shift();
-    const done = researchResults.filter(r=>r.status==='done').length;
-    $('researchProgress').textContent = `Running ${item.label} — ${done} done, ${researchQueue.length} queued…`;
-    researchResults.push({key:item.sym, status:'running', label:item.label});
-    renderResearchTable();
-    const pages = Number($('researchPages').value);
-    startResearchFetch(item.sym, pages, (candles) => handleResearchResult(item, candles));
-  }
-  function runResearchScan(){
-    if (!ws || ws.readyState !== 1 || researchRunning) return;
-    const syms = Array.from(document.querySelectorAll('.researchSym:checked')).map(el => ({sym: el.value, label: el.dataset.label}));
-    if (!syms.length) return;
-    researchQueue = syms.slice();
-    researchResults = [];
-    researchStopRequested = false;
-    researchRunning = true;
-    $('btnRunResearch').disabled = true;
-    $('btnStopResearch').disabled = false;
-    renderResearchTable();
-    runNextResearchItem();
-  }
-  $('btnRunResearch').addEventListener('click', runResearchScan);
-  $('btnStopResearch').addEventListener('click', () => { researchStopRequested = true; $('researchProgress').textContent = 'Stopping after current item…'; });
-  populateResearchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
