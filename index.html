@@ -396,7 +396,7 @@
       <p style="font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7;margin-top:10px">
         <b>Multi-timeframe strip</b> — 1m/5m/15m/1H streamed independently; each has its own structure. <b>Swings</b> — fractal highs/lows (2 bars either side). <b>BOS</b> — close breaks the last swing with the trend. <b>CHoCH</b> — breaks against it, flipping the bias.<br>
         <b>Mean Reversion</b> — BB(20,2σ) + RSI(2) extreme, both required, per Connors' short-term reversal research. An H4 regime filter blocks only counter-trend fades. TP1 targets the BB mid, TP2 stretches beyond it, SL is ATR(14)×1.5, with a 10-bar time-stop. Runs on whichever timeframe tab is selected.<br>
-        <b>Trend Following</b> — H4 momentum sign must agree with an H1 Donchian(20) breakout. SL starts at ATR(14)×2, trails at ATR(14)×3, or exits on a Donchian(10) breach — whichever comes first. Fixed to H1/H4 regardless of the timeframe strip. Optional H4-confirmed R:R target, off by default (pure trailing).<br>
+        <b>Trend Following</b> — H4 trend (price vs. its own 200-bar SMA) must agree with an H1 Donchian(20) breakout. SL starts at ATR(14)×2, trails at ATR(14)×3, or exits on a Donchian(10) breach — whichever comes first. Fixed to H1/H4 regardless of the timeframe strip. Optional H4-confirmed R:R target, off by default (pure trailing).<br>
         <b>Disclosure log</b> — stored only in this browser, on this device.
       </p>
     </details>
@@ -1317,12 +1317,25 @@
     for (let i = uptoIndex-period+1; i <= uptoIndex; i++){ hi = Math.max(hi, c[i].high); lo = Math.min(lo, c[i].low); }
     return { hi, lo };
   }
+  // Regime direction: price vs. its own SMA over the lookback window, not a
+  // bare two-point return (current close vs. the close exactly `lookback`
+  // bars ago). A two-point difference is dominated by whatever noise sits
+  // at those two specific endpoints — a single anomalous H4 bar 200 periods
+  // back could flip the whole regime read. Comparing against a moving
+  // average instead is the standard way trend filters are built precisely
+  // because it isn't sensitive to any one bar; this is a fix to a
+  // demonstrably noisier estimator, not a parameter retuned toward a
+  // result. The 20/10 Donchian entry/exit and ATR stop/trail this filter
+  // sits on top of already match the published Turtle Trading System's
+  // "System 1" and are left unchanged.
   function trendDirectionTF(h4, uptoIndex, lookback){
     if (uptoIndex < lookback) return 0;
-    const closeNow = h4[uptoIndex].close, closeThen = h4[uptoIndex-lookback].close;
-    if (!closeThen) return 0;
-    const ret = (closeNow-closeThen)/closeThen;
-    return ret>0 ? 1 : ret<0 ? -1 : 0;
+    let sum = 0;
+    for (let i = uptoIndex-lookback+1; i <= uptoIndex; i++) sum += h4[i].close;
+    const sma = sum/lookback;
+    if (!sma) return 0;
+    const closeNow = h4[uptoIndex].close;
+    return closeNow>sma ? 1 : closeNow<sma ? -1 : 0;
   }
 
   // Live/decision-support ticket: shows the breakout LEVEL to watch, not a
@@ -1498,7 +1511,7 @@
         ? (lastMRDiagnostic
             ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}`
             : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.')
-        : 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 momentum filter. No setup currently in play.';
+        : 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
       slot.innerHTML = `<div class="idle-ticket">${msg}</div>`;
       return;
     }
