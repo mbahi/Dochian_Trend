@@ -2094,6 +2094,24 @@
     if (t.timeStop) return Math.max(-1-spreadCostR, Math.min(t.R, cap));
     return 0;
   }
+  // Raw (uncapped) win-size distribution — built for Spike Timing
+  // specifically. Its "episode avg R" is already outlier-capped at 3.0 the
+  // same as every other strategy, but unlike Mean Reversion/Trend
+  // Following (bounded R:R targets, a huge R can only mean an unusually
+  // tight stop on an otherwise ordinary move), Spike Timing's wins are
+  // real market-price exits with no fixed target — a large R there could
+  // be genuine, repeatable payoff (Late-Cycle Entry catching a real spike;
+  // Bounded-Time Fade catching a real grind leg) or a couple of outliers
+  // propping up an otherwise-fragile average. The capped episode stats
+  // can't tell those apart; this can.
+  function winDistribution(trades, cap){
+    const wins = trades.filter(t => t.result !== 'open' && t.R > 0).map(t => t.R).sort((a,b)=>a-b);
+    const n = wins.length;
+    if (!n) return null;
+    const pct = p => wins[Math.min(n-1, Math.floor(p*n))];
+    const atCap = wins.filter(r => r >= cap).length;
+    return { n, median: pct(0.5), p75: pct(0.75), p90: pct(0.90), max: wins[n-1], pctAtCap: atCap/n*100 };
+  }
   function computeAdvancedMetrics(trades, gapBars){
     const closed = trades.filter(t => t.result !== 'open');
     const n = closed.length;
@@ -2476,6 +2494,8 @@
     const rows = batchResults.map(r => {
       if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
       const v = r.verdict;
+      const wd = r.winDist;
+      const wdText = wd ? `win dist (raw, n=${wd.n}): median ${wd.median.toFixed(2)}R · p75 ${wd.p75.toFixed(2)}R · p90 ${wd.p90.toFixed(2)}R · max ${wd.max.toFixed(2)}R · ${wd.pctAtCap.toFixed(0)}% of wins ≥3.0R cap` : '';
       return `<tr>
         <td>${r.symLabel}</td><td>${r.stratLabel}</td><td>${r.tfLabel}</td>
         <td>${r.n}</td>
@@ -2483,7 +2503,7 @@
         <td class="${r.avgR>0?'pos':r.avgR<0?'neg':''}">${r.n ? (r.avgR>=0?'+':'')+r.avgR.toFixed(3)+'R' : '—'}</td>
         <td>${r.episodes==null?'—':r.episodes}</td>
         <td class="${r.episodeAvg>0?'pos':r.episodeAvg<0?'neg':''}">${r.episodeAvg==null?'—':(r.episodeAvg>=0?'+':'')+r.episodeAvg.toFixed(3)+'R'}</td>
-        <td><span class="batch-verdict ${v.cls}">${v.text}</span></td>
+        <td><span class="batch-verdict ${v.cls}">${v.text}</span>${wd ? `<div class="btnote" style="margin:4px 0 0;font-size:9.5px;white-space:normal;max-width:340px">${wdText}</div>` : ''}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="batch-table"><thead><tr>
@@ -2500,7 +2520,8 @@
       key: item.key, status:'done',
       symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
       tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
-      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict
+      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict,
+      winDist: isSpikeStrat ? winDistribution(trades, 3.0) : null
     };
     if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
     renderBatchTable();
