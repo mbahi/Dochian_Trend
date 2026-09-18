@@ -50,6 +50,16 @@
   .mtf-cell .bias{font-size:13px;font-weight:600;margin-top:2px}
   .mtf-cell .bias.bull{color:var(--brass)} .mtf-cell .bias.bear{color:var(--steel)} .mtf-cell .bias.neutral{color:var(--faint)}
 
+  .batch-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+  .batch-table th{text-align:left;color:var(--faint);font-weight:500;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em}
+  .batch-table td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--dim)}
+  .batch-table td.pos{color:var(--green-acc)} .batch-table td.neg{color:var(--red-acc)}
+  .batch-table tr.running td{color:var(--brass)}
+  .batch-verdict{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600}
+  .batch-verdict.val-good{background:rgba(63,143,111,0.18);color:var(--green-acc)}
+  .batch-verdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc)}
+  #batchSymChecks label, #batchStratChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+
   .quote-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px}
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
   .quote.up{color:var(--brass)} .quote.down{color:var(--steel)}
@@ -241,6 +251,19 @@
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
+  </div>
+
+  <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
+    <h3>Batch Scan</h3>
+    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error.</div>
+    <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
+    <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
+    <div class="ticket-actions">
+      <button class="tbtn" id="btnRunBatch" style="background:var(--brass);color:#0f1826">Run Batch Scan</button>
+      <button class="tbtn" id="btnStopBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
+    </div>
+    <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
@@ -2112,6 +2135,106 @@
     if (!ws || ws.readyState !== 1) return;
     startBacktestFetch(curSym, curStrategy, curTf);
   });
+
+  // ---------- Batch Scan: run every checked strategy across every checked
+  // symbol, one at a time, through the exact same startBacktestFetch/
+  // finalizePart/simulate*/computeAdvancedMetrics/backtestVerdict pipeline
+  // as a single interactive "Run Backtest" click — see startBacktestFetch's
+  // and finalizePart's onComplete branches above. This exists purely to
+  // remove the tedium of clicking through combinations by hand; it changes
+  // no math and applies no extra filtering, so a "0 signals" or "no edge"
+  // row here is exactly what a manual run would have shown too.
+  function strategyLabelFor(s){
+    return s==='meanrev' ? 'Mean Reversion' : 'Trend Following';
+  }
+  let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
+  function populateBatchChecks(){
+    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following']];
+    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
+    const opts = Array.from(document.querySelectorAll('#symbol option'));
+    // Default-check the forex/metals majors only — a first scan should be
+    // fast, and these are the instruments with a real order-book behind
+    // them (unlike Deriv's synthetic indices, which are a continuously-
+    // generated RNG process with no actual participant footprints for
+    // SMC-style structure concepts to detect). Everything else is opt-in.
+    const defaultOn = new Set(['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD','frxUSDCHF','frxNZDUSD','frxXAUUSD']);
+    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" ${defaultOn.has(o.value)?'checked':''}> ${o.textContent}</label>`).join('');
+  }
+  function renderBatchTable(){
+    const wrap = $('batchResultsWrap');
+    if (!batchResults.length){ wrap.innerHTML = ''; return; }
+    const rows = batchResults.map(r => {
+      if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
+      const v = r.verdict;
+      return `<tr>
+        <td>${r.symLabel}</td><td>${r.stratLabel}</td><td>${r.tfLabel}</td>
+        <td>${r.n}</td>
+        <td>${r.n ? r.winRate.toFixed(1)+'%' : '—'}</td>
+        <td class="${r.avgR>0?'pos':r.avgR<0?'neg':''}">${r.n ? (r.avgR>=0?'+':'')+r.avgR.toFixed(3)+'R' : '—'}</td>
+        <td>${r.episodes==null?'—':r.episodes}</td>
+        <td class="${r.episodeAvg>0?'pos':r.episodeAvg<0?'neg':''}">${r.episodeAvg==null?'—':(r.episodeAvg>=0?'+':'')+r.episodeAvg.toFixed(3)+'R'}</td>
+        <td><span class="batch-verdict ${v.cls}">${v.text}</span></td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="batch-table"><thead><tr>
+      <th>Symbol</th><th>Strategy</th><th>TF</th><th>Signals</th><th>Win%</th><th>Avg R</th><th>Episodes</th><th>Episode Avg R</th><th>Verdict</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function handleBatchResult(item, trades, hist, meta){
+    const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
+    const m = computeAdvancedMetrics(trades);
+    const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
+    const idx = batchResults.findIndex(r => r.key === item.key);
+    const row = {
+      key: item.key, status:'done',
+      symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
+      tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
+      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict
+    };
+    if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  function runNextBatchItem(){
+    if (batchStopRequested || !batchQueue.length){
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      $('batchProgress').textContent = !batchQueue.length ? 'Done.' : 'Stopped.';
+      return;
+    }
+    if (!ws || ws.readyState !== 1){
+      $('batchProgress').textContent = 'Lost connection — stopped.';
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      return;
+    }
+    const item = batchQueue.shift();
+    const done = batchResults.filter(r=>r.status==='done').length;
+    $('batchProgress').textContent = `Running ${symbolLabel(item.sym)} · ${strategyLabelFor(item.strat)} — ${done} done, ${batchQueue.length} queued…`;
+    batchResults.push({key:item.key, status:'running', symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat)});
+    renderBatchTable();
+    startBacktestFetch(item.sym, item.strat, item.tf, (trades, hist, meta) => handleBatchResult(item, trades, hist, meta));
+  }
+  function runBatchScan(){
+    if (!ws || ws.readyState !== 1 || batchRunning) return;
+    const strats = Array.from(document.querySelectorAll('.batchStrat:checked')).map(el => el.value);
+    const syms = Array.from(document.querySelectorAll('.batchSym:checked')).map(el => el.value);
+    if (!strats.length || !syms.length) return;
+    batchQueue = [];
+    for (const sym of syms) for (const strat of strats) batchQueue.push({sym, strat, tf: curTf, key: sym+'|'+strat});
+    batchResults = [];
+    batchStopRequested = false;
+    batchRunning = true;
+    $('btnRunBatch').disabled = true;
+    $('btnStopBatch').disabled = false;
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  $('btnRunBatch').addEventListener('click', runBatchScan);
+  $('btnStopBatch').addEventListener('click', () => { batchStopRequested = true; $('batchProgress').textContent = 'Stopping after current item…'; });
+  populateBatchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
