@@ -8,10 +8,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#0b1220; --ledger:#131f33; --ledger2:#0e1826; --line:#24344a;
-    --paper:#eaf1fb; --brass:#d4af37; --steel:#5a6472;
-    --grey-acc:#5a6472; --red-acc:#b5484d; --green-acc:#3f8f6f;
-    --text:#e8eef7; --dim:#93a4bd; --faint:#5a6472;
+    /* "Cosmic Artistry" palette (212A31/2E3944/124E66/748D92/D3D9D4) --
+       --brass is lifted from the palette's #124E66 teal to #4fa8c9 for
+       legibility: at the swatch's own value it's ~1.7:1 contrast against
+       --ink, unreadable as text/border and as button background under the
+       dark #0f1826 button text used throughout. Lifting it keeps the same
+       hue family while staying readable in both roles. */
+    --ink:#212a31; --ledger:#2e3944; --ledger2:#26313a; --line:#3f4d56;
+    --paper:#e9eeed; --brass:#4fa8c9; --steel:#748d92;
+    --grey-acc:#748d92; --red-acc:#b5484d; --green-acc:#3f8f6f;
+    --text:#e8eef7; --dim:#93a4bd; --faint:#748d92;
     --serif:'Fraunces', serif; --sans:'Inter', -apple-system, sans-serif;
     --mono:'JetBrains Mono', ui-monospace, monospace;
   }
@@ -1596,8 +1602,8 @@
       const cd = visible[i];
       const cx = x(i);
       const up = cd.close >= cd.open;
-      ctx.strokeStyle = up ? '#d4af37' : '#5a6472';
-      ctx.fillStyle = up ? '#d4af37' : '#5a6472';
+      ctx.strokeStyle = up ? '#4fa8c9' : '#748d92';
+      ctx.fillStyle = up ? '#4fa8c9' : '#748d92';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, y(cd.high)); ctx.lineTo(cx, y(cd.low)); ctx.stroke();
       const bw = Math.max(2, xw*0.55);
@@ -1609,18 +1615,18 @@
     for (const s of swings){
       const i = s.index - offset;
       if (i<0 || i>=visible.length) continue;
-      ctx.fillStyle = s.type==='high' ? '#d4af37' : '#5a6472';
+      ctx.fillStyle = s.type==='high' ? '#4fa8c9' : '#748d92';
       ctx.beginPath(); ctx.arc(x(i), y(s.price), 2.2, 0, Math.PI*2); ctx.fill();
     }
 
     for (const ev of structure.events){
       const i = ev.index - offset;
       if (i<0 || i>=visible.length) continue;
-      ctx.strokeStyle = ev.direction==='bull' ? '#d4af37' : '#5a6472';
+      ctx.strokeStyle = ev.direction==='bull' ? '#4fa8c9' : '#748d92';
       ctx.setLineDash([3,3]);
       ctx.beginPath(); ctx.moveTo(0, y(ev.price)); ctx.lineTo(W, y(ev.price)); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = ev.type==='CHoCH' ? '#b5484d' : (ev.direction==='bull'?'#d4af37':'#5a6472');
+      ctx.fillStyle = ev.type==='CHoCH' ? '#b5484d' : (ev.direction==='bull'?'#4fa8c9':'#748d92');
       ctx.fillText(ev.type, Math.min(x(i)+4, W-32), y(ev.price)-4);
     }
   }
@@ -1636,7 +1642,7 @@
     if (!c.length) return;
     const visible = c.slice(-100);
     const offset = c.length - visible.length;
-    const colors = {accumulation:'#5a6472', manipulation:'#b5484d', distribution:'#3f8f6f'};
+    const colors = {accumulation:'#748d92', manipulation:'#b5484d', distribution:'#3f8f6f'};
     for (const b of amd){
       const s = b.start-offset, e = b.end-offset;
       if (e<0 || s>visible.length) continue;
@@ -2313,7 +2319,7 @@
       const cMax = Math.max(...curve, 0), cMin = Math.min(...curve, 0);
       const range = (cMax-cMin) || 1;
       const y = v => H - ((v-cMin)/range)*H;
-      ctx.strokeStyle = totalR>=0 ? '#d4af37' : '#5a6472';
+      ctx.strokeStyle = totalR>=0 ? '#4fa8c9' : '#748d92';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       curve.forEach((v,i) => { const px = i/(curve.length-1)*W; i===0 ? ctx.moveTo(px,y(v)) : ctx.lineTo(px,y(v)); });
