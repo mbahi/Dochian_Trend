@@ -609,6 +609,39 @@
   // once at the first confirmed signal. 3 units, matching the commonly-
   // described Connors scaling depth, not a number picked for this data.
   const MR_MAX_SCALE_UNITS = 3;
+  // Isolation toggle — scale-in is part of what produced the live Crash
+  // 600/1000/Boom 900 evidence, but unlike Trend Following's pyramiding it
+  // was never tested in isolation against the n=1 (no scale-in) case on
+  // real data. Defaults true (current behavior, unchanged) — flip to
+  // false (?mrscale=0) to run the same symbol/depth with scale-in forced
+  // off and compare episode avg R against the toggle-on run. A trade that
+  // never scales in is already just the n=1 case per simulateMeanReversion-
+  // TradeV2's own comment, so this is a true apples-to-apples isolation,
+  // not a different code path.
+  let MR_USE_SCALE_IN = true;
+  (function applyMRScaleInParam(){
+    const p = new URLSearchParams(location.search);
+    if (p.has('mrscale')) MR_USE_SCALE_IN = p.get('mrscale') !== '0';
+  })();
+  // Untested alternative TP1: instead of the BB midline, target the close of
+  // the most recently CLOSED 4H candle, continuously re-pegged to whichever
+  // H4 candle most recently closed for as long as the trade stays open —
+  // requested directly, not evidenced. Default OFF so the proven Crash
+  // 600/1000/Boom 900 results are unaffected unless explicitly opted in.
+  // Only ever used when it sits on the profitable side of entry (bull: H4
+  // close > entry; bear: H4 close < entry) — otherwise falls back to the BB
+  // mid for that bar, since a target on the wrong side of entry is not a
+  // real target. See simulateMeanReversionTradeV2 for the bar-by-bar
+  // walk-forward re-peg and constructMRTicket for the ticket-display value.
+  let MR_TP1_H4_CLOSE = false;
+  (function applyMRToggleParams(){
+    const p = new URLSearchParams(location.search);
+    if (p.has('mrtp1')) MR_TP1_H4_CLOSE = p.get('mrtp1') !== '0';
+  })();
+  window.mrToggles = {
+    get tp1H4Close(){ return MR_TP1_H4_CLOSE; }, set tp1H4Close(v){ MR_TP1_H4_CLOSE = !!v; },
+    get scaleIn(){ return MR_USE_SCALE_IN; }, set scaleIn(v){ MR_USE_SCALE_IN = !!v; }
+  };
 
   function computeBB(c, uptoIndex, period, mult){
     if (uptoIndex < period-1) return null;
@@ -752,10 +785,17 @@
     // and would be circular/less meaningful as "the mean being reverted to").
     const bb = computeBB(c, confirmIdx, MR_BB_PERIOD, MR_BB_MULT);
     if (!bb) return null;
-    const tp1 = bb.mid;
-    const distToMid = Math.abs(tp1-entry);
+    // TP2 always stretches from the BB mid, regardless of MR_TP1_H4_CLOSE —
+    // only the TP1 level itself changes with that toggle, not TP2's anchor.
+    const distToMid = Math.abs(bb.mid-entry);
     const tp2 = dir==='bull' ? entry + distToMid*1.6 : entry - distToMid*1.6;
-    const rr1 = distToMid/risk, rr2 = Math.abs(tp2-entry)/risk;
+    let tp1 = bb.mid;
+    if (MR_TP1_H4_CLOSE && h4Data && h4Data.length){
+      const h4Close = h4Data[h4Data.length-1].close;
+      const validSide = dir==='bull' ? h4Close > entry : h4Close < entry;
+      if (validSide) tp1 = h4Close;
+    }
+    const rr1 = Math.abs(tp1-entry)/risk, rr2 = Math.abs(tp2-entry)/risk;
     const d = decimalsFor(curSym);
     return validateTicket({
       dir, label:'MeanRev V2', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
@@ -902,7 +942,7 @@
   // original confirmed setup); each unit's own R is computed against those
   // fixed levels from its own entry price, then averaged. Each unit pays
   // its own spread cost, since each is a genuinely separate fill.
-  function simulateMeanReversionTradeV2(hist, entryIdx, t, maxBars){
+  function simulateMeanReversionTradeV2(hist, entryIdx, t, maxBars, h4){
     const deadline = entryIdx + maxBars;
     const dir = t.dir;
     const sig0 = computeMRSignals(hist, entryIdx);
@@ -910,9 +950,29 @@
     const units = [{ entry: t.entry }];
     let hitTP1 = false;
 
+    // MR_TP1_H4_CLOSE: walk h4 forward alongside hist (no lookahead — only
+    // H4 candles already closed as of this bar's time) and re-peg the TP1
+    // target to whichever H4 candle most recently closed, for as long as
+    // the trade is open and that level sits on the profitable side of
+    // entry (see the constant's comment above). When the toggle is off (or
+    // h4 wasn't passed), currentTp1 just stays t.tp1 forever — identical
+    // arithmetic to before this existed. Frozen into bankedTp1 the instant
+    // TP1 is actually reached, so a trade that banks TP1 isn't
+    // retroactively re-priced by a target that kept moving afterward.
+    let h4ptr = -1, currentTp1 = t.tp1, bankedTp1 = t.tp1;
+    function advanceTp1(barEpoch){
+      if (!MR_TP1_H4_CLOSE || !h4) return;
+      while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= barEpoch) h4ptr++;
+      if (h4ptr < 0) return;
+      const h4Close = h4[h4ptr].close;
+      const validSide = dir==='bull' ? h4Close > t.entry : h4Close < t.entry;
+      if (validSide) currentTp1 = h4Close;
+    }
+
     function unitParts(entry){
       const risk = Math.abs(entry - t.sl);
-      const rr1 = risk>0 ? Math.abs(t.tp1-entry)/risk : 0;
+      const tp1Now = hitTP1 ? bankedTp1 : currentTp1;
+      const rr1 = risk>0 ? Math.abs(tp1Now-entry)/risk : 0;
       const rr2 = risk>0 ? Math.abs(t.tp2-entry)/risk : 0;
       return { risk, rr1, rr2 };
     }
@@ -920,12 +980,16 @@
 
     for (let j = entryIdx; j < hist.length; j++){
       const c = hist[j];
+      advanceTp1(c.epoch);
 
       // Scale in: only before TP1 is banked, only on a fresh, MORE extreme
       // RSI(2) reading than the last add's own trigger (not just any dip
       // below the original threshold), and only while price is still
-      // beyond the band — a live extreme, not stale noise.
-      if (!hitTP1 && units.length < MR_MAX_SCALE_UNITS && j > entryIdx){
+      // beyond the band — a live extreme, not stale noise. Gated by
+      // MR_USE_SCALE_IN for isolation testing (?mrscale=0) — when off,
+      // units never grows past 1, which is already the documented n=1
+      // degenerate case every formula below reduces to.
+      if (MR_USE_SCALE_IN && !hitTP1 && units.length < MR_MAX_SCALE_UNITS && j > entryIdx){
         const sig = computeMRSignals(hist, j);
         if (sig){
           const moreExtreme = dir==='bull' ? sig.rsi < lastAddRSI : sig.rsi > lastAddRSI;
@@ -939,10 +1003,10 @@
 
       if (dir==='bull'){
         if (!hitTP1){
-          const hitSL = c.low <= t.sl, hitTP = c.high >= t.tp1;
+          const hitSL = c.low <= t.sl, hitTP = c.high >= currentTp1;
           if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true, units:units.length};
           if (hitSL) return {result:'SL', R: avgUnits(()=>-1-spreadCostR), exitIndex:j, units:units.length};
-          if (hitTP) hitTP1 = true;
+          if (hitTP){ hitTP1 = true; bankedTp1 = currentTp1; }
         } else {
           const hitBE = c.low <= t.entry, hitTP2 = c.high >= t.tp2;
           if (hitBE && hitTP2) return {result:'AMBIGUOUS', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, ambiguous:true, units:units.length};
@@ -951,10 +1015,10 @@
         }
       } else {
         if (!hitTP1){
-          const hitSL = c.high >= t.sl, hitTP = c.low <= t.tp1;
+          const hitSL = c.high >= t.sl, hitTP = c.low <= currentTp1;
           if (hitSL && hitTP) return {result:'AMBIGUOUS', R:0, exitIndex:j, ambiguous:true, units:units.length};
           if (hitSL) return {result:'SL', R: avgUnits(()=>-1-spreadCostR), exitIndex:j, units:units.length};
-          if (hitTP) hitTP1 = true;
+          if (hitTP){ hitTP1 = true; bankedTp1 = currentTp1; }
         } else {
           const hitBE = c.high >= t.entry, hitTP2 = c.low <= t.tp2;
           if (hitBE && hitTP2) return {result:'AMBIGUOUS', R: avgUnits(e=>0.5*unitParts(e).rr1-spreadCostR), exitIndex:j, ambiguous:true, units:units.length};
@@ -1866,7 +1930,7 @@
       if (!ticket) continue;
       if (ticket.key === lastKey) continue;
       lastKey = ticket.key;
-      const outcome = simulateMeanReversionTradeV2(hist, i, ticket, MR_MAX_BARS);
+      const outcome = simulateMeanReversionTradeV2(hist, i, ticket, MR_MAX_BARS, h4);
       if (outcome.result === 'never filled'){ neverFilled++; continue; }
       const labelOverride = outcome.units>1 ? { label: `${ticket.label} (${outcome.units}u)` } : null;
       trades.push(Object.assign({index:i}, ticket, outcome, labelOverride));
