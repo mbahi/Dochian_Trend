@@ -129,6 +129,13 @@
   .btverdict.val-good{background:rgba(63,143,111,0.15);color:var(--green-acc);border:1px solid rgba(63,143,111,0.4)}
   .btverdict.val-thin{background:rgba(181,72,77,0.12);color:var(--red-acc);border:1px solid rgba(181,72,77,0.35)}
 
+  .batch-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+  .batch-table th{text-align:left;color:var(--faint);font-weight:500;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em}
+  .batch-table td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--dim)}
+  .batch-table td.pos{color:var(--green-acc)} .batch-table td.neg{color:var(--red-acc)}
+  .batch-table tr.running td{color:var(--brass)}
+  #batchSymChecks label, #batchStratChecks label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+
   .rulepanel{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .rulepanel h3{font-family:var(--serif);font-size:13px;color:var(--dim);margin-bottom:8px;font-weight:500}
   .rulepanel p{font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7}
@@ -179,6 +186,10 @@
           <option value="frxEURGBP">EUR/GBP</option>
           <option value="frxEURJPY">EUR/JPY</option>
           <option value="frxGBPJPY">GBP/JPY</option>
+          <option value="frxEURAUD">EUR/AUD</option>
+          <option value="frxEURCAD">EUR/CAD</option>
+          <option value="frxEURCHF">EUR/CHF</option>
+          <option value="frxGBPAUD">GBP/AUD</option>
           <option value="frxXAUUSD">XAU/USD (Gold)</option>
           <option value="frxXAGUSD">XAG/USD (Silver)</option>
         </optgroup>
@@ -191,17 +202,24 @@
         </optgroup>
         <optgroup label="Volatility (1s)">
           <option value="1HZ10V">Volatility 10 (1s)</option>
+          <option value="1HZ15V">Volatility 15 (1s)</option>
           <option value="1HZ25V">Volatility 25 (1s)</option>
+          <option value="1HZ30V">Volatility 30 (1s)</option>
           <option value="1HZ50V">Volatility 50 (1s)</option>
           <option value="1HZ75V">Volatility 75 (1s)</option>
+          <option value="1HZ90V">Volatility 90 (1s)</option>
           <option value="1HZ100V">Volatility 100 (1s)</option>
         </optgroup>
         <optgroup label="Boom / Crash">
+          <option value="BOOM50">Boom 50</option>
+          <option value="BOOM150N">Boom 150</option>
           <option value="BOOM300N">Boom 300</option>
           <option value="BOOM500">Boom 500</option>
           <option value="BOOM600">Boom 600</option>
           <option value="BOOM900">Boom 900</option>
           <option value="BOOM1000">Boom 1000</option>
+          <option value="CRASH50">Crash 50</option>
+          <option value="CRASH150N">Crash 150</option>
           <option value="CRASH300N">Crash 300</option>
           <option value="CRASH500">Crash 500</option>
           <option value="CRASH600">Crash 600</option>
@@ -217,6 +235,51 @@
           <option value="JD50">Jump 50</option>
           <option value="JD75">Jump 75</option>
           <option value="JD100">Jump 100</option>
+        </optgroup>
+        <optgroup label="Daily Reset">
+          <option value="RDBULL">Bull Market Index</option>
+          <option value="RDBEAR">Bear Market Index</option>
+        </optgroup>
+        <optgroup label="Baskets">
+          <option value="WLDXAU">Gold Basket</option>
+          <option value="WLDAUD">AUD Basket</option>
+          <option value="WLDEUR">EUR Basket</option>
+          <option value="WLDGBP">GBP Basket</option>
+          <option value="WLDUSD">USD Basket</option>
+        </optgroup>
+        <optgroup label="Cryptocurrency">
+          <option value="cryBTCUSD">BTC/USD</option>
+          <option value="cryETHUSD">ETH/USD</option>
+        </optgroup>
+        <optgroup label="Stock Indices (OTC)">
+          <option value="OTC_DJI">Wall Street 30</option>
+          <option value="OTC_NDX">US Tech 100</option>
+          <option value="OTC_SPC">US 500</option>
+          <option value="OTC_AS51">Australia 200</option>
+          <option value="OTC_HSI">Hong Kong 50</option>
+          <option value="OTC_N225">Japan 225</option>
+          <option value="OTC_AEX">Netherlands 25</option>
+          <option value="OTC_FCHI">France 40</option>
+          <option value="OTC_FTSE">UK 100</option>
+          <option value="OTC_GDAXI">Germany 40</option>
+          <option value="OTC_SSMI">Swiss 20</option>
+          <option value="OTC_SX5E">Euro 50</option>
+        </optgroup>
+        <optgroup label="Forex (Minor Pairs)">
+          <option value="frxAUDCAD">AUD/CAD</option>
+          <option value="frxAUDCHF">AUD/CHF</option>
+          <option value="frxAUDNZD">AUD/NZD</option>
+          <option value="frxEURNZD">EUR/NZD</option>
+          <option value="frxGBPCAD">GBP/CAD</option>
+          <option value="frxGBPCHF">GBP/CHF</option>
+          <option value="frxGBPNZD">GBP/NZD</option>
+          <option value="frxUSDMXN">USD/MXN</option>
+          <option value="frxUSDPLN">USD/PLN</option>
+          <option value="frxNZDJPY">NZD/JPY</option>
+        </optgroup>
+        <optgroup label="Metals (extra)">
+          <option value="frxXPDUSD">Palladium/USD</option>
+          <option value="frxXPTUSD">Platinum/USD</option>
         </optgroup>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
@@ -235,7 +298,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
-      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence across all 10 Boom/Crash instruments.">Bounded-Time Fade (Boom/Crash)</button>
+      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -249,6 +312,24 @@
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
+  </div>
+
+  <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
+    <h3>Batch Scan</h3>
+    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo.</div>
+    <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
+    <div style="display:flex;gap:10px;margin-bottom:6px;font-family:var(--mono);font-size:10.5px">
+      <button class="tbtn" id="btnSelectAllSyms" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line);padding:4px 9px">Select all symbols</button>
+      <button class="tbtn" id="btnClearAllSyms" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line);padding:4px 9px">Clear all</button>
+    </div>
+    <div id="batchSymChecks" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--dim);max-height:110px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
+    <div class="ticket-actions">
+      <button class="tbtn" id="btnRunBatch" style="background:var(--brass);color:#0f1826">Run Batch Scan</button>
+      <button class="tbtn" id="btnStopBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <button class="tbtn" id="btnDownloadBatchCsv" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line)" disabled>Download CSV (0 rows)</button>
+      <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
+    </div>
+    <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
   </div>
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
@@ -308,6 +389,38 @@
   let pipDecimals = {};
   let disclosedKey = null;
   const MAXC = 220;
+  // Diagnostic-only: ?listsymbols=1 dumps Deriv's live active_symbols
+  // response as an on-screen, screenshot-friendly overlay grouped by
+  // submarket, so the real API symbol codes (e.g. for newer instruments
+  // like Boom/Crash 150 or 50) can be read off a phone without devtools.
+  // Does not touch any strategy logic; safe to leave in.
+  const LIST_SYMBOLS_MODE = new URLSearchParams(location.search).has('listsymbols');
+  function renderSymbolListOverlay(list){
+    // Field names are read defensively — this app talks to a non-standard
+    // WS endpoint (see WS_URL), so its active_symbols shape isn't assumed
+    // to match the documented v3 API. Any entry missing the expected
+    // symbol/name keys is dumped as raw JSON instead of guessed at.
+    const groups = {};
+    for (const s of list){
+      const sym = s.symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
+      const name = s.display_name ?? s.name ?? s.full_name ?? s.title;
+      const g = s.submarket_display_name ?? s.submarket ?? s.market_display_name ?? s.market ?? s.category ?? 'Other';
+      const line = (sym != null && name != null) ? `${sym}  —  ${name}` : JSON.stringify(s);
+      (groups[g] = groups[g] || []).push(line);
+    }
+    const sections = Object.keys(groups).sort().map(g =>
+      `<h3 style="margin:18px 0 6px;color:#9fd6ff;">${g} (${groups[g].length})</h3>` +
+      `<div>${groups[g].sort().join('<br>')}</div>`
+    ).join('');
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0d1117;color:#e6edf3;'+
+      'font:13px/1.5 ui-monospace,monospace;overflow:auto;padding:16px;-webkit-overflow-scrolling:touch;';
+    div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">`+
+      `<b>Live Deriv active_symbols (${list.length} total)</b>`+
+      `<button id="closeSymList" style="padding:6px 12px;">Close</button></div>${sections}`;
+    document.body.appendChild(div);
+    div.querySelector('#closeSymList').onclick = () => div.remove();
+  }
   const LOG_KEY = 'ruleEleven_disclosure_log';
   const PREFS_KEY = 'structureLedger_prefs';
   function savePrefs(){
@@ -410,7 +523,8 @@
       return;
     }
     if (m.msg_type === 'active_symbols'){
-      for (const s of m.active_symbols){ if (s.pip) pipDecimals[s.symbol] = s.pip; }
+      for (const s of m.active_symbols){ if (s.pip_size) pipDecimals[s.underlying_symbol] = s.pip_size; }
+      if (LIST_SYMBOLS_MODE) renderSymbolListOverlay(m.active_symbols);
       return;
     }
     if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym){
@@ -1468,13 +1582,17 @@
   // scans this project ran actually found — a broad scan missing a narrow
   // real effect isn't a contradiction, so both are kept rather than
   // overwritten. spike_fade reflects Batch Scan's Boom/Crash-only run:
-  // 10/10 instruments, 0.05R spread-adjusted, split-half consistent, and
-  // (separately) win-size-distribution-checked — not a single aggregate
-  // number, since spike_fade was never run as one broad scan across all 38.
+  // 10/10 (of the then-listed) instruments, 0.05R spread-adjusted, split-half
+  // consistent, and (separately) win-size-distribution-checked — not a
+  // single aggregate number, since spike_fade was never run as one broad
+  // scan across all 38. The dropdown has since grown (Boom/Crash 50/150,
+  // extra Volatility 1s tiers) — those additions were never part of any
+  // of the runs described below, so the counts stay pinned to what was
+  // actually tested rather than re-described as "all".
   const STRATEGY_VALIDATION = {
-    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across all 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
-    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on every Boom/Crash instrument too (10/10, 1H)', cls:'val-thin'},
-    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 Boom/Crash instruments, 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent)', cls:'val-good'}
+    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
+    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on the original 10 Boom/Crash instruments too (10/10, 1H)', cls:'val-thin'},
+    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
   };
 
   function strategyLabel(){
@@ -2178,6 +2296,24 @@
     if (t.timeStop) return Math.max(-1-spreadCostR, Math.min(t.R, cap));
     return 0;
   }
+  // Raw (uncapped) win-size distribution — built for Spike Timing
+  // specifically. Its "episode avg R" is already outlier-capped at 3.0 the
+  // same as every other strategy, but unlike Mean Reversion/Trend
+  // Following (bounded R:R targets, a huge R can only mean an unusually
+  // tight stop on an otherwise ordinary move), Spike Timing's wins are
+  // real market-price exits with no fixed target — a large R there could
+  // be genuine, repeatable payoff (Late-Cycle Entry catching a real spike;
+  // Bounded-Time Fade catching a real grind leg) or a couple of outliers
+  // propping up an otherwise-fragile average. The capped episode stats
+  // can't tell those apart; this can.
+  function winDistribution(trades, cap){
+    const wins = trades.filter(t => t.result !== 'open' && t.R > 0).map(t => t.R).sort((a,b)=>a-b);
+    const n = wins.length;
+    if (!n) return null;
+    const pct = p => wins[Math.min(n-1, Math.floor(p*n))];
+    const atCap = wins.filter(r => r >= cap).length;
+    return { n, median: pct(0.5), p75: pct(0.75), p90: pct(0.90), max: wins[n-1], pctAtCap: atCap/n*100 };
+  }
   function computeAdvancedMetrics(trades, gapBars){
     const closed = trades.filter(t => t.result !== 'open');
     const n = closed.length;
@@ -2518,6 +2654,166 @@
     if (!ws || ws.readyState !== 1) return;
     startBacktestFetch(curSym, curStrategy, curTf);
   });
+
+  // ---------- Batch Scan: run every checked strategy across every checked
+  // symbol, one at a time, through the exact same startBacktestFetch/
+  // finalizePart/simulate*/computeAdvancedMetrics/backtestVerdict pipeline
+  // as a single interactive "Run Backtest" click — see startBacktestFetch's
+  // and finalizePart's onComplete branches above. This exists purely to
+  // remove the tedium of clicking through combinations by hand; it changes
+  // no math and applies no extra filtering, so a "0 signals" or "no edge"
+  // row here is exactly what a manual run would have shown too.
+  function strategyLabelFor(s){
+    return s==='meanrev' ? 'Mean Reversion' : s==='trend' ? 'Trend Following'
+      : s==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade';
+  }
+  let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
+  function populateBatchChecks(){
+    // Late-Cycle Entry / Bounded-Time Fade are unchecked by default — new,
+    // still-unproven strategies that only apply to Boom/Crash symbols (see
+    // spikeDirectionFor); opt in explicitly rather than firing alongside a
+    // routine Mean Reversion/Trend Following run.
+    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
+    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" ${v==='spike_late'||v==='spike_fade'?'':'checked'}> ${l}</label>`).join('');
+    const opts = Array.from(document.querySelectorAll('#symbol option'));
+    // Default-check the forex/metals majors only — a first scan should be
+    // fast, and these are the instruments with a real order-book behind
+    // them (unlike Deriv's synthetic indices, which are a continuously-
+    // generated RNG process with no actual participant footprints for
+    // SMC-style structure concepts to detect). Everything else is opt-in —
+    // every symbol is still a checkbox here (now covering all instruments
+    // in the #symbol dropdown, synthetics and real markets alike), so any
+    // pair can be scanned; use "Select all symbols" to check them all at
+    // once instead of one by one.
+    const defaultOn = new Set(['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD','frxUSDCHF','frxNZDUSD','frxXAUUSD']);
+    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" ${defaultOn.has(o.value)?'checked':''}> ${o.textContent}</label>`).join('');
+  }
+  function renderBatchTable(){
+    const wrap = $('batchResultsWrap');
+    if (!batchResults.length){
+      wrap.innerHTML = '';
+      $('btnDownloadBatchCsv').disabled = true;
+      $('btnDownloadBatchCsv').textContent = 'Download CSV (0 rows)';
+      return;
+    }
+    const rows = batchResults.map(r => {
+      if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
+      const v = r.verdict;
+      const wd = r.winDist;
+      const wdText = wd ? `win dist (raw, n=${wd.n}): median ${wd.median.toFixed(2)}R · p75 ${wd.p75.toFixed(2)}R · p90 ${wd.p90.toFixed(2)}R · max ${wd.max.toFixed(2)}R · ${wd.pctAtCap.toFixed(0)}% of wins ≥3.0R cap` : '';
+      return `<tr>
+        <td>${r.symLabel}</td><td>${r.stratLabel}</td><td>${r.tfLabel}</td>
+        <td>${r.n}</td>
+        <td>${r.n ? r.winRate.toFixed(1)+'%' : '—'}</td>
+        <td class="${r.avgR>0?'pos':r.avgR<0?'neg':''}">${r.n ? (r.avgR>=0?'+':'')+r.avgR.toFixed(3)+'R' : '—'}</td>
+        <td>${r.episodes==null?'—':r.episodes}</td>
+        <td class="${r.episodeAvg>0?'pos':r.episodeAvg<0?'neg':''}">${r.episodeAvg==null?'—':(r.episodeAvg>=0?'+':'')+r.episodeAvg.toFixed(3)+'R'}</td>
+        <td><span class="batch-verdict ${v.cls}">${v.text}</span>${wd ? `<div class="btnote" style="margin:4px 0 0;font-size:9.5px;white-space:normal;max-width:340px">${wdText}</div>` : ''}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="batch-table"><thead><tr>
+      <th>Symbol</th><th>Strategy</th><th>TF</th><th>Signals</th><th>Win%</th><th>Avg R</th><th>Episodes</th><th>Episode Avg R</th><th>Verdict</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+    const doneCount = batchResults.filter(r => r.status==='done').length;
+    $('btnDownloadBatchCsv').disabled = doneCount === 0;
+    $('btnDownloadBatchCsv').textContent = `Download CSV (${doneCount} row${doneCount===1?'':'s'})`;
+  }
+  // One row per symbol/strategy combo — the same numbers shown in the
+  // table above, not the underlying trade list (that's what each
+  // individual "Run Backtest" → Download CSV already gives you). Meant to
+  // be read/sorted/filtered in a spreadsheet across the whole scan at
+  // once instead of scrolling the on-page table.
+  function downloadBatchCSV(){
+    const done = batchResults.filter(r => r.status==='done');
+    if (!done.length) return;
+    const header = ['symbol_code','symbol','strategy','timeframe','signals','win_rate_pct','avg_r','episodes','episode_avg_r','verdict','win_dist_n','win_dist_median_r','win_dist_p75_r','win_dist_p90_r','win_dist_max_r','win_dist_pct_at_cap'];
+    const rows = done.map(r => {
+      const wd = r.winDist;
+      return [
+        r.sym, r.symLabel, r.stratLabel, r.tfLabel,
+        r.n, r.n ? r.winRate.toFixed(1) : '', r.n ? r.avgR.toFixed(3) : '',
+        r.episodes==null ? '' : r.episodes, r.episodeAvg==null ? '' : r.episodeAvg.toFixed(3),
+        r.verdict.text.replace(/,/g,';'),
+        wd ? wd.n : '', wd ? wd.median.toFixed(3) : '', wd ? wd.p75.toFixed(3) : '',
+        wd ? wd.p90.toFixed(3) : '', wd ? wd.max.toFixed(3) : '', wd ? wd.pctAtCap.toFixed(1) : ''
+      ];
+    });
+    const csv = [header.join(','), ...rows.map(r => r.map(v => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(','))].join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_scan_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function handleBatchResult(item, trades, hist, meta){
+    const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
+    const isSpikeStrat = item.strat==='spike_late' || item.strat==='spike_fade';
+    const m = computeAdvancedMetrics(trades, isSpikeStrat ? 0 : 10);
+    const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
+    const idx = batchResults.findIndex(r => r.key === item.key);
+    const row = {
+      key: item.key, status:'done', sym: item.sym, strat: item.strat,
+      symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
+      tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
+      n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict,
+      winDist: isSpikeStrat ? winDistribution(trades, 3.0) : null
+    };
+    if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  function runNextBatchItem(){
+    if (batchStopRequested || !batchQueue.length){
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      $('batchProgress').textContent = !batchQueue.length ? 'Done.' : 'Stopped.';
+      return;
+    }
+    if (!ws || ws.readyState !== 1){
+      $('batchProgress').textContent = 'Lost connection — stopped.';
+      batchRunning = false;
+      $('btnRunBatch').disabled = false;
+      $('btnStopBatch').disabled = true;
+      return;
+    }
+    const item = batchQueue.shift();
+    const done = batchResults.filter(r=>r.status==='done').length;
+    $('batchProgress').textContent = `Running ${symbolLabel(item.sym)} · ${strategyLabelFor(item.strat)} — ${done} done, ${batchQueue.length} queued…`;
+    batchResults.push({key:item.key, status:'running', symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat)});
+    renderBatchTable();
+    startBacktestFetch(item.sym, item.strat, item.tf, (trades, hist, meta) => handleBatchResult(item, trades, hist, meta));
+  }
+  function runBatchScan(){
+    if (!ws || ws.readyState !== 1 || batchRunning) return;
+    const strats = Array.from(document.querySelectorAll('.batchStrat:checked')).map(el => el.value);
+    const syms = Array.from(document.querySelectorAll('.batchSym:checked')).map(el => el.value);
+    if (!strats.length || !syms.length) return;
+    batchQueue = [];
+    for (const sym of syms) for (const strat of strats){
+      const isSpike = strat==='spike_late' || strat==='spike_fade';
+      if (isSpike && !spikeDirectionFor(sym)) continue; // Boom/Crash only — skip silently rather than show a meaningless N/A row
+      batchQueue.push({sym, strat, tf: isSpike ? 60 : curTf, key: sym+'|'+strat});
+    }
+    batchResults = [];
+    batchStopRequested = false;
+    batchRunning = true;
+    $('btnRunBatch').disabled = true;
+    $('btnStopBatch').disabled = false;
+    renderBatchTable();
+    runNextBatchItem();
+  }
+  $('btnRunBatch').addEventListener('click', runBatchScan);
+  $('btnStopBatch').addEventListener('click', () => { batchStopRequested = true; $('batchProgress').textContent = 'Stopping after current item…'; });
+  $('btnDownloadBatchCsv').addEventListener('click', downloadBatchCSV);
+  $('btnSelectAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = true); });
+  $('btnClearAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = false); });
+  populateBatchChecks();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
