@@ -366,19 +366,30 @@
   // like Boom/Crash 150 or 50) can be read off a phone without devtools.
   // Does not touch any strategy logic; safe to leave in.
   const LIST_SYMBOLS_MODE = new URLSearchParams(location.search).has('listsymbols');
+  // Optional substring filter (?listsymbols=1&filter=step) so a specific
+  // submarket/symbol/name can be grabbed on its own — full dumps have
+  // repeatedly gotten cut off mid-paste on mobile before reaching later
+  // (alphabetically later) groups like step_index.
+  const LIST_SYMBOLS_FILTER = (new URLSearchParams(location.search).get('filter') || '').toLowerCase();
   function renderSymbolListOverlay(list){
     // Field names are read defensively — this app talks to a non-standard
-    // WS endpoint (see WS_URL), so its active_symbols shape isn't assumed
-    // to match the documented v3 API. Any entry missing the expected
-    // symbol/name keys is dumped as raw JSON instead of guessed at.
+    // WS endpoint (see WS_URL), confirmed to return underlying_symbol/
+    // underlying_symbol_name/submarket rather than the documented v3 API's
+    // symbol/display_name. Both are tried; anything still unmatched is
+    // dumped as raw JSON instead of guessed at.
     const groups = {};
     for (const s of list){
-      const sym = s.symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
-      const name = s.display_name ?? s.name ?? s.full_name ?? s.title;
+      const sym = s.symbol ?? s.underlying_symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
+      const name = s.display_name ?? s.underlying_symbol_name ?? s.name ?? s.full_name ?? s.title;
       const g = s.submarket_display_name ?? s.submarket ?? s.market_display_name ?? s.market ?? s.category ?? 'Other';
+      if (LIST_SYMBOLS_FILTER){
+        const hay = `${g} ${sym} ${name}`.toLowerCase();
+        if (!hay.includes(LIST_SYMBOLS_FILTER)) continue;
+      }
       const line = (sym != null && name != null) ? `${sym}  —  ${name}` : JSON.stringify(s);
       (groups[g] = groups[g] || []).push(line);
     }
+    const matched = Object.values(groups).reduce((n,a) => n+a.length, 0);
     const sections = Object.keys(groups).sort().map(g =>
       `<h3 style="margin:18px 0 6px;color:#9fd6ff;">${g} (${groups[g].length})</h3>` +
       `<div>${groups[g].sort().join('<br>')}</div>`
@@ -386,9 +397,10 @@
     const div = document.createElement('div');
     div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0d1117;color:#e6edf3;'+
       'font:13px/1.5 ui-monospace,monospace;overflow:auto;padding:16px;-webkit-overflow-scrolling:touch;';
+    const titleBit = LIST_SYMBOLS_FILTER ? `${matched} matching "${LIST_SYMBOLS_FILTER}" of ${list.length} total` : `${list.length} total`;
     div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">`+
-      `<b>Live Deriv active_symbols (${list.length} total)</b>`+
-      `<button id="closeSymList" style="padding:6px 12px;">Close</button></div>${sections}`;
+      `<b>Live Deriv active_symbols (${titleBit})</b>`+
+      `<button id="closeSymList" style="padding:6px 12px;">Close</button></div>${sections || '<p style="color:#93a4bd">No matches.</p>'}`;
     document.body.appendChild(div);
     div.querySelector('#closeSymList').onclick = () => div.remove();
   }
