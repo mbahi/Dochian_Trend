@@ -315,10 +315,17 @@
   // Does not touch any strategy logic; safe to leave in.
   const LIST_SYMBOLS_MODE = new URLSearchParams(location.search).has('listsymbols');
   function renderSymbolListOverlay(list){
+    // Field names are read defensively — this app talks to a non-standard
+    // WS endpoint (see WS_URL), so its active_symbols shape isn't assumed
+    // to match the documented v3 API. Any entry missing the expected
+    // symbol/name keys is dumped as raw JSON instead of guessed at.
     const groups = {};
     for (const s of list){
-      const g = s.submarket_display_name || s.market_display_name || s.market || 'Other';
-      (groups[g] = groups[g] || []).push(`${s.symbol}  —  ${s.display_name}`);
+      const sym = s.symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
+      const name = s.display_name ?? s.name ?? s.full_name ?? s.title;
+      const g = s.submarket_display_name ?? s.submarket ?? s.market_display_name ?? s.market ?? s.category ?? 'Other';
+      const line = (sym != null && name != null) ? `${sym}  —  ${name}` : JSON.stringify(s);
+      (groups[g] = groups[g] || []).push(line);
     }
     const sections = Object.keys(groups).sort().map(g =>
       `<h3 style="margin:18px 0 6px;color:#9fd6ff;">${g} (${groups[g].length})</h3>` +
