@@ -191,17 +191,24 @@
         </optgroup>
         <optgroup label="Volatility (1s)">
           <option value="1HZ10V">Volatility 10 (1s)</option>
+          <option value="1HZ15V">Volatility 15 (1s)</option>
           <option value="1HZ25V">Volatility 25 (1s)</option>
+          <option value="1HZ30V">Volatility 30 (1s)</option>
           <option value="1HZ50V">Volatility 50 (1s)</option>
           <option value="1HZ75V">Volatility 75 (1s)</option>
+          <option value="1HZ90V">Volatility 90 (1s)</option>
           <option value="1HZ100V">Volatility 100 (1s)</option>
         </optgroup>
         <optgroup label="Boom / Crash">
+          <option value="BOOM50">Boom 50</option>
+          <option value="BOOM150N">Boom 150</option>
           <option value="BOOM300N">Boom 300</option>
           <option value="BOOM500">Boom 500</option>
           <option value="BOOM600">Boom 600</option>
           <option value="BOOM900">Boom 900</option>
           <option value="BOOM1000">Boom 1000</option>
+          <option value="CRASH50">Crash 50</option>
+          <option value="CRASH150N">Crash 150</option>
           <option value="CRASH300N">Crash 300</option>
           <option value="CRASH500">Crash 500</option>
           <option value="CRASH600">Crash 600</option>
@@ -235,7 +242,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
-      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence across all 10 Boom/Crash instruments.">Bounded-Time Fade (Boom/Crash)</button>
+      <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -442,7 +449,7 @@
       return;
     }
     if (m.msg_type === 'active_symbols'){
-      for (const s of m.active_symbols){ if (s.pip) pipDecimals[s.symbol] = s.pip; }
+      for (const s of m.active_symbols){ if (s.pip_size) pipDecimals[s.underlying_symbol] = s.pip_size; }
       if (LIST_SYMBOLS_MODE) renderSymbolListOverlay(m.active_symbols);
       return;
     }
@@ -1501,13 +1508,17 @@
   // scans this project ran actually found — a broad scan missing a narrow
   // real effect isn't a contradiction, so both are kept rather than
   // overwritten. spike_fade reflects Batch Scan's Boom/Crash-only run:
-  // 10/10 instruments, 0.05R spread-adjusted, split-half consistent, and
-  // (separately) win-size-distribution-checked — not a single aggregate
-  // number, since spike_fade was never run as one broad scan across all 38.
+  // 10/10 (of the then-listed) instruments, 0.05R spread-adjusted, split-half
+  // consistent, and (separately) win-size-distribution-checked — not a
+  // single aggregate number, since spike_fade was never run as one broad
+  // scan across all 38. The dropdown has since grown (Boom/Crash 50/150,
+  // extra Volatility 1s tiers) — those additions were never part of any
+  // of the runs described below, so the counts stay pinned to what was
+  // actually tested rather than re-described as "all".
   const STRATEGY_VALIDATION = {
-    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across all 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
-    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on every Boom/Crash instrument too (10/10, 1H)', cls:'val-thin'},
-    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 Boom/Crash instruments, 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent)', cls:'val-good'}
+    meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
+    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on the original 10 Boom/Crash instruments too (10/10, 1H)', cls:'val-thin'},
+    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
   };
 
   function strategyLabel(){
