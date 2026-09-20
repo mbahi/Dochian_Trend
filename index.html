@@ -609,6 +609,20 @@
   // once at the first confirmed signal. 3 units, matching the commonly-
   // described Connors scaling depth, not a number picked for this data.
   const MR_MAX_SCALE_UNITS = 3;
+  // Isolation toggle — scale-in is part of what produced the live Crash
+  // 600/1000/Boom 900 evidence, but unlike Trend Following's pyramiding it
+  // was never tested in isolation against the n=1 (no scale-in) case on
+  // real data. Defaults true (current behavior, unchanged) — flip to
+  // false (?mrscale=0) to run the same symbol/depth with scale-in forced
+  // off and compare episode avg R against the toggle-on run. A trade that
+  // never scales in is already just the n=1 case per simulateMeanReversion-
+  // TradeV2's own comment, so this is a true apples-to-apples isolation,
+  // not a different code path.
+  let MR_USE_SCALE_IN = true;
+  (function applyMRScaleInParam(){
+    const p = new URLSearchParams(location.search);
+    if (p.has('mrscale')) MR_USE_SCALE_IN = p.get('mrscale') !== '0';
+  })();
   // Untested alternative TP1: instead of the BB midline, target the close of
   // the most recently CLOSED 4H candle, continuously re-pegged to whichever
   // H4 candle most recently closed for as long as the trade stays open —
@@ -625,7 +639,8 @@
     if (p.has('mrtp1')) MR_TP1_H4_CLOSE = p.get('mrtp1') !== '0';
   })();
   window.mrToggles = {
-    get tp1H4Close(){ return MR_TP1_H4_CLOSE; }, set tp1H4Close(v){ MR_TP1_H4_CLOSE = !!v; }
+    get tp1H4Close(){ return MR_TP1_H4_CLOSE; }, set tp1H4Close(v){ MR_TP1_H4_CLOSE = !!v; },
+    get scaleIn(){ return MR_USE_SCALE_IN; }, set scaleIn(v){ MR_USE_SCALE_IN = !!v; }
   };
 
   function computeBB(c, uptoIndex, period, mult){
@@ -970,8 +985,11 @@
       // Scale in: only before TP1 is banked, only on a fresh, MORE extreme
       // RSI(2) reading than the last add's own trigger (not just any dip
       // below the original threshold), and only while price is still
-      // beyond the band — a live extreme, not stale noise.
-      if (!hitTP1 && units.length < MR_MAX_SCALE_UNITS && j > entryIdx){
+      // beyond the band — a live extreme, not stale noise. Gated by
+      // MR_USE_SCALE_IN for isolation testing (?mrscale=0) — when off,
+      // units never grows past 1, which is already the documented n=1
+      // degenerate case every formula below reduces to.
+      if (MR_USE_SCALE_IN && !hitTP1 && units.length < MR_MAX_SCALE_UNITS && j > entryIdx){
         const sig = computeMRSignals(hist, j);
         if (sig){
           const moreExtreme = dir==='bull' ? sig.rsi < lastAddRSI : sig.rsi > lastAddRSI;
