@@ -289,9 +289,9 @@
     </span>
   </div>
 
-  <div class="btpanel" id="batchPanel" style="margin-bottom:12px">
-    <h3>Batch Scan</h3>
-    <div class="btmeta">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo.</div>
+  <details class="btpanel" id="batchPanel" style="margin-bottom:12px">
+    <summary style="cursor:pointer;font-family:var(--serif);font-size:14px">Batch Scan</summary>
+    <div class="btmeta" style="margin-top:10px">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo.</div>
     <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
     <div style="display:flex;gap:10px;margin-bottom:6px;font-family:var(--mono);font-size:10.5px">
       <button class="tbtn" id="btnSelectAllSyms" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line);padding:4px 9px">Select all symbols</button>
@@ -305,7 +305,7 @@
       <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
     </div>
     <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
-  </div>
+  </details>
 
   <div class="mtf" id="strategystrip" style="margin-bottom:12px"></div>
 
