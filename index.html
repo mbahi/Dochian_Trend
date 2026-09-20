@@ -227,7 +227,11 @@
           <option value="CRASH1000">Crash 1000</option>
         </optgroup>
         <optgroup label="Step">
-          <option value="stpRNG">Step Index</option>
+          <option value="stpRNG">Step 100</option>
+          <option value="stpRNG2">Step 200</option>
+          <option value="stpRNG3">Step 300</option>
+          <option value="stpRNG4">Step 400</option>
+          <option value="stpRNG5">Step 500</option>
         </optgroup>
         <optgroup label="Jump">
           <option value="JD10">Jump 10</option>
@@ -236,34 +240,9 @@
           <option value="JD75">Jump 75</option>
           <option value="JD100">Jump 100</option>
         </optgroup>
-        <optgroup label="Daily Reset">
-          <option value="RDBULL">Bull Market Index</option>
-          <option value="RDBEAR">Bear Market Index</option>
-        </optgroup>
-        <optgroup label="Baskets">
-          <option value="WLDXAU">Gold Basket</option>
-          <option value="WLDAUD">AUD Basket</option>
-          <option value="WLDEUR">EUR Basket</option>
-          <option value="WLDGBP">GBP Basket</option>
-          <option value="WLDUSD">USD Basket</option>
-        </optgroup>
         <optgroup label="Cryptocurrency">
           <option value="cryBTCUSD">BTC/USD</option>
           <option value="cryETHUSD">ETH/USD</option>
-        </optgroup>
-        <optgroup label="Stock Indices (OTC)">
-          <option value="OTC_DJI">Wall Street 30</option>
-          <option value="OTC_NDX">US Tech 100</option>
-          <option value="OTC_SPC">US 500</option>
-          <option value="OTC_AS51">Australia 200</option>
-          <option value="OTC_HSI">Hong Kong 50</option>
-          <option value="OTC_N225">Japan 225</option>
-          <option value="OTC_AEX">Netherlands 25</option>
-          <option value="OTC_FCHI">France 40</option>
-          <option value="OTC_FTSE">UK 100</option>
-          <option value="OTC_GDAXI">Germany 40</option>
-          <option value="OTC_SSMI">Swiss 20</option>
-          <option value="OTC_SX5E">Euro 50</option>
         </optgroup>
         <optgroup label="Forex (Minor Pairs)">
           <option value="frxAUDCAD">AUD/CAD</option>
@@ -276,10 +255,6 @@
           <option value="frxUSDMXN">USD/MXN</option>
           <option value="frxUSDPLN">USD/PLN</option>
           <option value="frxNZDJPY">NZD/JPY</option>
-        </optgroup>
-        <optgroup label="Metals (extra)">
-          <option value="frxXPDUSD">Palladium/USD</option>
-          <option value="frxXPTUSD">Platinum/USD</option>
         </optgroup>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
@@ -395,19 +370,30 @@
   // like Boom/Crash 150 or 50) can be read off a phone without devtools.
   // Does not touch any strategy logic; safe to leave in.
   const LIST_SYMBOLS_MODE = new URLSearchParams(location.search).has('listsymbols');
+  // Optional substring filter (?listsymbols=1&filter=step) so a specific
+  // submarket/symbol/name can be grabbed on its own — full dumps have
+  // repeatedly gotten cut off mid-paste on mobile before reaching later
+  // (alphabetically later) groups like step_index.
+  const LIST_SYMBOLS_FILTER = (new URLSearchParams(location.search).get('filter') || '').toLowerCase();
   function renderSymbolListOverlay(list){
     // Field names are read defensively — this app talks to a non-standard
-    // WS endpoint (see WS_URL), so its active_symbols shape isn't assumed
-    // to match the documented v3 API. Any entry missing the expected
-    // symbol/name keys is dumped as raw JSON instead of guessed at.
+    // WS endpoint (see WS_URL), confirmed to return underlying_symbol/
+    // underlying_symbol_name/submarket rather than the documented v3 API's
+    // symbol/display_name. Both are tried; anything still unmatched is
+    // dumped as raw JSON instead of guessed at.
     const groups = {};
     for (const s of list){
-      const sym = s.symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
-      const name = s.display_name ?? s.name ?? s.full_name ?? s.title;
+      const sym = s.symbol ?? s.underlying_symbol ?? s.short_code ?? s.code ?? s.ticker ?? s.id;
+      const name = s.display_name ?? s.underlying_symbol_name ?? s.name ?? s.full_name ?? s.title;
       const g = s.submarket_display_name ?? s.submarket ?? s.market_display_name ?? s.market ?? s.category ?? 'Other';
+      if (LIST_SYMBOLS_FILTER){
+        const hay = `${g} ${sym} ${name}`.toLowerCase();
+        if (!hay.includes(LIST_SYMBOLS_FILTER)) continue;
+      }
       const line = (sym != null && name != null) ? `${sym}  —  ${name}` : JSON.stringify(s);
       (groups[g] = groups[g] || []).push(line);
     }
+    const matched = Object.values(groups).reduce((n,a) => n+a.length, 0);
     const sections = Object.keys(groups).sort().map(g =>
       `<h3 style="margin:18px 0 6px;color:#9fd6ff;">${g} (${groups[g].length})</h3>` +
       `<div>${groups[g].sort().join('<br>')}</div>`
@@ -415,9 +401,10 @@
     const div = document.createElement('div');
     div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0d1117;color:#e6edf3;'+
       'font:13px/1.5 ui-monospace,monospace;overflow:auto;padding:16px;-webkit-overflow-scrolling:touch;';
+    const titleBit = LIST_SYMBOLS_FILTER ? `${matched} matching "${LIST_SYMBOLS_FILTER}" of ${list.length} total` : `${list.length} total`;
     div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">`+
-      `<b>Live Deriv active_symbols (${list.length} total)</b>`+
-      `<button id="closeSymList" style="padding:6px 12px;">Close</button></div>${sections}`;
+      `<b>Live Deriv active_symbols (${titleBit})</b>`+
+      `<button id="closeSymList" style="padding:6px 12px;">Close</button></div>${sections || '<p style="color:#93a4bd">No matches.</p>'}`;
     document.body.appendChild(div);
     div.querySelector('#closeSymList').onclick = () => div.remove();
   }
