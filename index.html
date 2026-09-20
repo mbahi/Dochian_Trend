@@ -326,6 +326,7 @@
     <div class="ticket-actions">
       <button class="tbtn" id="btnRunBatch" style="background:var(--brass);color:#0f1826">Run Batch Scan</button>
       <button class="tbtn" id="btnStopBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)" disabled>Stop</button>
+      <button class="tbtn" id="btnDownloadBatchCsv" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line)" disabled>Download CSV (0 rows)</button>
       <span id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--faint);align-self:center"></span>
     </div>
     <div id="batchResultsWrap" style="margin-top:10px;overflow-x:auto"></div>
@@ -2689,7 +2690,12 @@
   }
   function renderBatchTable(){
     const wrap = $('batchResultsWrap');
-    if (!batchResults.length){ wrap.innerHTML = ''; return; }
+    if (!batchResults.length){
+      wrap.innerHTML = '';
+      $('btnDownloadBatchCsv').disabled = true;
+      $('btnDownloadBatchCsv').textContent = 'Download CSV (0 rows)';
+      return;
+    }
     const rows = batchResults.map(r => {
       if (r.status === 'running') return `<tr class="running"><td colspan="9">${r.symLabel} · ${r.stratLabel} — fetching/running…</td></tr>`;
       const v = r.verdict;
@@ -2708,6 +2714,41 @@
     wrap.innerHTML = `<table class="batch-table"><thead><tr>
       <th>Symbol</th><th>Strategy</th><th>TF</th><th>Signals</th><th>Win%</th><th>Avg R</th><th>Episodes</th><th>Episode Avg R</th><th>Verdict</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
+    const doneCount = batchResults.filter(r => r.status==='done').length;
+    $('btnDownloadBatchCsv').disabled = doneCount === 0;
+    $('btnDownloadBatchCsv').textContent = `Download CSV (${doneCount} row${doneCount===1?'':'s'})`;
+  }
+  // One row per symbol/strategy combo — the same numbers shown in the
+  // table above, not the underlying trade list (that's what each
+  // individual "Run Backtest" → Download CSV already gives you). Meant to
+  // be read/sorted/filtered in a spreadsheet across the whole scan at
+  // once instead of scrolling the on-page table.
+  function downloadBatchCSV(){
+    const done = batchResults.filter(r => r.status==='done');
+    if (!done.length) return;
+    const header = ['symbol_code','symbol','strategy','timeframe','signals','win_rate_pct','avg_r','episodes','episode_avg_r','verdict','win_dist_n','win_dist_median_r','win_dist_p75_r','win_dist_p90_r','win_dist_max_r','win_dist_pct_at_cap'];
+    const rows = done.map(r => {
+      const wd = r.winDist;
+      return [
+        r.sym, r.symLabel, r.stratLabel, r.tfLabel,
+        r.n, r.n ? r.winRate.toFixed(1) : '', r.n ? r.avgR.toFixed(3) : '',
+        r.episodes==null ? '' : r.episodes, r.episodeAvg==null ? '' : r.episodeAvg.toFixed(3),
+        r.verdict.text.replace(/,/g,';'),
+        wd ? wd.n : '', wd ? wd.median.toFixed(3) : '', wd ? wd.p75.toFixed(3) : '',
+        wd ? wd.p90.toFixed(3) : '', wd ? wd.max.toFixed(3) : '', wd ? wd.pctAtCap.toFixed(1) : ''
+      ];
+    });
+    const csv = [header.join(','), ...rows.map(r => r.map(v => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(','))].join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_scan_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
   function handleBatchResult(item, trades, hist, meta){
     const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
@@ -2716,7 +2757,7 @@
     const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
     const idx = batchResults.findIndex(r => r.key === item.key);
     const row = {
-      key: item.key, status:'done',
+      key: item.key, status:'done', sym: item.sym, strat: item.strat,
       symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
       tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
       n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict,
@@ -2769,6 +2810,7 @@
   }
   $('btnRunBatch').addEventListener('click', runBatchScan);
   $('btnStopBatch').addEventListener('click', () => { batchStopRequested = true; $('batchProgress').textContent = 'Stopping after current item…'; });
+  $('btnDownloadBatchCsv').addEventListener('click', downloadBatchCSV);
   $('btnSelectAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = true); });
   $('btnClearAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = false); });
   populateBatchChecks();
