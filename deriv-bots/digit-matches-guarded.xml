@@ -1,0 +1,182 @@
+<xml xmlns="http://www.w3.org/1999/xhtml" is_dbot="true" collection="false">
+  <variables>
+    <variable id="v_stake" islocal="false" iscloud="false">Stake</variable>
+    <variable id="v_pred" islocal="false" iscloud="false">Prediction</variable>
+    <variable id="v_tp" islocal="false" iscloud="false">Take Profit</variable>
+    <variable id="v_sl" islocal="false" iscloud="false">Stop Loss</variable>
+    <variable id="v_max" islocal="false" iscloud="false">Max Trades</variable>
+    <variable id="v_runs" islocal="false" iscloud="false">Trades</variable>
+  </variables>
+  <block type="trade_definition" id="td_root" deletable="false" x="0" y="0">
+    <statement name="TRADE_OPTIONS">
+      <block type="trade_definition_market" id="td_market" deletable="false" movable="false">
+        <field name="MARKET_LIST">synthetic_index</field>
+        <field name="SUBMARKET_LIST">random_index</field>
+        <field name="SYMBOL_LIST">R_10</field>
+        <next>
+          <block type="trade_definition_tradetype" id="td_tradetype" deletable="false" movable="false">
+            <field name="TRADETYPECAT_LIST">digits</field>
+            <field name="TRADETYPE_LIST">matchesdiffers</field>
+            <next>
+              <block type="trade_definition_contracttype" id="td_contract" deletable="false" movable="false">
+                <field name="TYPE_LIST">DIGITMATCH</field>
+                <next>
+                  <block type="trade_definition_candleinterval" id="td_candle" deletable="false" movable="false">
+                    <field name="CANDLEINTERVAL_LIST">60</field>
+                    <next>
+                      <block type="trade_definition_restartbuysell" id="td_rbs" deletable="false" movable="false">
+                        <field name="TIME_MACHINE_ENABLED">FALSE</field>
+                        <next>
+                          <block type="trade_definition_restartonerror" id="td_roe" deletable="false" movable="false">
+                            <field name="RESTARTONERROR">TRUE</field>
+                          </block>
+                        </next>
+                      </block>
+                    </next>
+                  </block>
+                </next>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </statement>
+    <statement name="INITIALIZATION">
+      <block type="variables_set" id="init_stake">
+        <field name="VAR" id="v_stake">Stake</field>
+        <value name="VALUE"><block type="math_number" id="n_stake"><field name="NUM">0.35</field></block></value>
+        <next>
+          <block type="variables_set" id="init_pred">
+            <field name="VAR" id="v_pred">Prediction</field>
+            <value name="VALUE"><block type="math_number" id="n_pred"><field name="NUM">3</field></block></value>
+            <next>
+              <block type="variables_set" id="init_tp">
+                <field name="VAR" id="v_tp">Take Profit</field>
+                <value name="VALUE"><block type="math_number" id="n_tp"><field name="NUM">1</field></block></value>
+                <next>
+                  <block type="variables_set" id="init_sl">
+                    <field name="VAR" id="v_sl">Stop Loss</field>
+                    <value name="VALUE"><block type="math_number" id="n_sl"><field name="NUM">0.7</field></block></value>
+                    <next>
+                      <block type="variables_set" id="init_max">
+                        <field name="VAR" id="v_max">Max Trades</field>
+                        <value name="VALUE"><block type="math_number" id="n_max"><field name="NUM">20</field></block></value>
+                        <next>
+                          <block type="variables_set" id="init_runs">
+                            <field name="VAR" id="v_runs">Trades</field>
+                            <value name="VALUE"><block type="math_number" id="n_runs"><field name="NUM">0</field></block></value>
+                          </block>
+                        </next>
+                      </block>
+                    </next>
+                  </block>
+                </next>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </statement>
+    <statement name="SUBMARKET">
+      <block type="trade_definition_tradeoptions" id="td_opts">
+        <mutation xmlns="http://www.w3.org/1999/xhtml" has_first_barrier="false" has_second_barrier="false" has_prediction="true"></mutation>
+        <field name="DURATIONTYPE_LIST">t</field>
+        <field name="CURRENCY_LIST">USD</field>
+        <value name="DURATION">
+          <shadow type="math_number_positive" id="sh_dur"><field name="NUM">1</field></shadow>
+        </value>
+        <value name="AMOUNT">
+          <shadow type="math_number_positive" id="sh_amt"><field name="NUM">0.35</field></shadow>
+          <block type="variables_get" id="get_stake"><field name="VAR" id="v_stake">Stake</field></block>
+        </value>
+        <value name="PREDICTION">
+          <shadow type="math_number_positive" id="sh_pred"><field name="NUM">3</field></shadow>
+          <block type="variables_get" id="get_pred"><field name="VAR" id="v_pred">Prediction</field></block>
+        </value>
+      </block>
+    </statement>
+  </block>
+  <block type="before_purchase" id="bp_root" deletable="false" x="0" y="760">
+    <statement name="BEFOREPURCHASE_STACK">
+      <block type="purchase" id="bp_buy">
+        <field name="PURCHASE_LIST">DIGITMATCH</field>
+      </block>
+    </statement>
+  </block>
+  <block type="during_purchase" id="dp_root" deletable="false" x="720" y="0">
+    <statement name="DURING_PURCHASE_STACK">
+      <block type="controls_if" id="dp_if">
+        <value name="IF0"><block type="check_sell" id="dp_check"></block></value>
+      </block>
+    </statement>
+  </block>
+  <block type="after_purchase" id="ap_root" deletable="false" x="720" y="240">
+    <statement name="AFTERPURCHASE_STACK">
+      <block type="math_change" id="ap_count">
+        <field name="VAR" id="v_runs">Trades</field>
+        <value name="DELTA"><shadow type="math_number" id="ap_one"><field name="NUM">1</field></shadow></value>
+        <next>
+          <block type="controls_if" id="ap_if">
+            <mutation elseif="2" else="1"></mutation>
+            <value name="IF0">
+              <block type="logic_compare" id="c_tp">
+                <field name="OP">GTE</field>
+                <value name="A"><block type="total_profit" id="tp_a"></block></value>
+                <value name="B"><block type="variables_get" id="tp_b"><field name="VAR" id="v_tp">Take Profit</field></block></value>
+              </block>
+            </value>
+            <statement name="DO0">
+              <block type="notify" id="nt_tp">
+                <field name="NOTIFICATION_TYPE">success</field>
+                <field name="NOTIFICATION_SOUND">earned-money</field>
+                <value name="MESSAGE">
+                  <shadow type="text" id="nt_tp_sh"><field name="TEXT">Take profit reached. Bot stopped.</field></shadow>
+                </value>
+              </block>
+            </statement>
+            <value name="IF1">
+              <block type="logic_compare" id="c_sl">
+                <field name="OP">LTE</field>
+                <value name="A"><block type="total_profit" id="sl_a"></block></value>
+                <value name="B">
+                  <block type="math_single" id="sl_neg">
+                    <field name="OP">NEG</field>
+                    <value name="NUM"><block type="variables_get" id="sl_b"><field name="VAR" id="v_sl">Stop Loss</field></block></value>
+                  </block>
+                </value>
+              </block>
+            </value>
+            <statement name="DO1">
+              <block type="notify" id="nt_sl">
+                <field name="NOTIFICATION_TYPE">error</field>
+                <field name="NOTIFICATION_SOUND">silent</field>
+                <value name="MESSAGE">
+                  <shadow type="text" id="nt_sl_sh"><field name="TEXT">Stop loss reached. Bot stopped.</field></shadow>
+                </value>
+              </block>
+            </statement>
+            <value name="IF2">
+              <block type="logic_compare" id="c_max">
+                <field name="OP">GTE</field>
+                <value name="A"><block type="variables_get" id="max_a"><field name="VAR" id="v_runs">Trades</field></block></value>
+                <value name="B"><block type="variables_get" id="max_b"><field name="VAR" id="v_max">Max Trades</field></block></value>
+              </block>
+            </value>
+            <statement name="DO2">
+              <block type="notify" id="nt_max">
+                <field name="NOTIFICATION_TYPE">info</field>
+                <field name="NOTIFICATION_SOUND">silent</field>
+                <value name="MESSAGE">
+                  <shadow type="text" id="nt_max_sh"><field name="TEXT">Max trades reached. Bot stopped.</field></shadow>
+                </value>
+              </block>
+            </statement>
+            <statement name="ELSE">
+              <block type="trade_again" id="ap_again"></block>
+            </statement>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>
