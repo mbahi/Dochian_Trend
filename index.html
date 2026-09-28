@@ -1144,23 +1144,40 @@
   // explains almost the entire regression; this one's effect, if any, is
   // within normal run-to-run noise) — still available to test properly.
   let TREND_USE_LAST_TRADE_FILTER = true;
+  // Grind Trend Following-only (see grindDirFor/simulateTrendBacktest below):
+  // a grind position is directly exposed to the one thing that defines this
+  // instrument class — the periodic spike runs straight against it. Boom/
+  // Crash Research's own finding (Gap CV 0.74-0.80, reused by Late-Cycle
+  // Entry/Bounded-Time Fade below) says a spike gets more likely, not
+  // equally likely, the longer it's been since the last one. This applies
+  // that same walk-forward elapsed/mean-gap read to grind entries instead:
+  // once elapsed time since the last spike reaches SPIKE_ENTRY_FRACTION of
+  // the running mean gap (the same threshold Late-Cycle Entry uses to
+  // decide a spike is "due"), no NEW grind entry is taken until the next
+  // spike resets the clock. Defaulted OFF — untested, opt-in only, same as
+  // every other isolation toggle here; this is a principled mechanism
+  // proposed before seeing whether it helps, not a fit to already-seen
+  // results.
+  let TREND_USE_SPIKE_FILTER = false;
   // No permanent UI control for these on purpose — this is a one-time
   // diagnostic to bisect a specific regression, not a feature the page
   // needs a control for. Two ways to flip them, so it works from a phone
   // (no console needed) as well as a desktop:
-  //   URL:     add ?pyramid=1 and/or ?ltf=0 and/or ?h4=0 to the page
-  //            address and reload — e.g. index.html?pyramid=1
+  //   URL:     add ?pyramid=1 and/or ?ltf=0 and/or ?h4=0 and/or ?spikefilter=1
+  //            to the page address and reload — e.g. index.html?pyramid=1
   //   Console: trendToggles.pyramid = true, etc.
   (function applyTrendToggleParams(){
     const p = new URLSearchParams(location.search);
     if (p.has('pyramid')) TREND_USE_PYRAMID = p.get('pyramid') !== '0';
     if (p.has('ltf')) TREND_USE_LAST_TRADE_FILTER = p.get('ltf') !== '0';
     if (p.has('h4')) TREND_USE_H4_FILTER = p.get('h4') !== '0';
+    if (p.has('spikefilter')) TREND_USE_SPIKE_FILTER = p.get('spikefilter') !== '0';
   })();
   window.trendToggles = {
     get h4filter(){ return TREND_USE_H4_FILTER; }, set h4filter(v){ TREND_USE_H4_FILTER = !!v; },
     get pyramid(){ return TREND_USE_PYRAMID; }, set pyramid(v){ TREND_USE_PYRAMID = !!v; },
-    get lastTradeFilter(){ return TREND_USE_LAST_TRADE_FILTER; }, set lastTradeFilter(v){ TREND_USE_LAST_TRADE_FILTER = !!v; }
+    get lastTradeFilter(){ return TREND_USE_LAST_TRADE_FILTER; }, set lastTradeFilter(v){ TREND_USE_LAST_TRADE_FILTER = !!v; },
+    get spikeFilter(){ return TREND_USE_SPIKE_FILTER; }, set spikeFilter(v){ TREND_USE_SPIKE_FILTER = !!v; }
   };
   // Adjustable via the UI slider — 0 = off (original pure-trailing exit,
   // no cap on winners). >0 = an H4-candle-CLOSE-confirmed fixed R:R target,
@@ -1416,8 +1433,23 @@
     if (!atrVal || !ch1 || !ch2) return null;
     const price = h1[i].close;
     const grindDir = grindDirFor(curSym);
-    const wantBull = (TREND_USE_H4_FILTER ? dir4===1 : true) && (!grindDir || grindDir==='bull');
-    const wantBear = (TREND_USE_H4_FILTER ? dir4===-1 : true) && (!grindDir || grindDir==='bear');
+    // Same spike-hazard gate as simulateTrendBacktest's TREND_USE_SPIKE_FILTER,
+    // computed once for the current bar instead of walk-forward across a
+    // whole backtest — all completed gaps in this H1 window feed the mean,
+    // elapsed is measured from the most recent detected spike to now.
+    let spikeFilterBlocked = false;
+    if (TREND_USE_SPIKE_FILTER && grindDir){
+      const spikes = detectSpikes(h1, spikeDirectionFor(curSym));
+      if (spikes.length > SPIKE_MIN_GAPS_FOR_STATS){
+        const gaps = [];
+        for (let k=1; k<spikes.length; k++) gaps.push(spikes[k].index - spikes[k-1].index);
+        const meanGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+        const elapsed = i - spikes[spikes.length-1].index;
+        if (meanGap && elapsed/meanGap >= SPIKE_ENTRY_FRACTION) spikeFilterBlocked = true;
+      }
+    }
+    const wantBull = (TREND_USE_H4_FILTER ? dir4===1 : true) && (!grindDir || grindDir==='bull') && !spikeFilterBlocked;
+    const wantBear = (TREND_USE_H4_FILTER ? dir4===-1 : true) && (!grindDir || grindDir==='bear') && !spikeFilterBlocked;
     // The backtest's "last trade" skip-filter needs closed-trade history
     // this live view doesn't persist across reloads, so it isn't applied
     // here. Instead System 1 is checked first and System 2 is always
@@ -2083,6 +2115,17 @@
     // dropdown, but the function stays symbol-general), this is a no-op
     // and behaves exactly like the original bidirectional breakout.
     const grindDir = grindDirFor(sym);
+    // Spike-hazard filter (TREND_USE_SPIKE_FILTER, opt-in) — same walk-
+    // forward elapsed/mean-gap tracking simulateSpikeTiming uses below,
+    // just applied to this H1 series instead of the 1m one Late-Cycle
+    // Entry/Bounded-Time Fade run on (no separate fetch needed; a spike
+    // still shows up as an anomalous H1 candle). spikeGaps accumulates
+    // only gaps FULLY completed before the current bar; spikePtr tracks
+    // which spike cycle bar i currently sits in.
+    const useSpikeFilter = TREND_USE_SPIKE_FILTER && !!grindDir;
+    const spikeList = useSpikeFilter ? detectSpikes(h1, spikeDirectionFor(sym)) : [];
+    let spikePtr = -1;
+    const spikeGaps = [];
     // "Last trade" filter (the Turtles' actual rule): skip the next System 1
     // breakout in a direction if the PRIOR closed Trend trade in that same
     // direction was a winner, falling back to System 2's longer (55-bar)
@@ -2096,6 +2139,17 @@
       while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
       const h4JustClosed = h4ptr > prevH4ptr;
       const bar = h1[i];
+
+      // Advance the spike-cycle pointer past any spike strictly before this
+      // bar (a spike AT this bar isn't "known" as a completed gap boundary
+      // until its own candle has closed) — every bar, whether or not a
+      // position is open, so the hazard read stays current either way.
+      if (useSpikeFilter){
+        while (spikePtr+1 < spikeList.length && spikeList[spikePtr+1].index < i){
+          if (spikePtr >= 0) spikeGaps.push(spikeList[spikePtr+1].index - spikeList[spikePtr].index);
+          spikePtr++;
+        }
+      }
 
       if (openPos){
         // Exit channel matches whichever system triggered this trade:
@@ -2170,6 +2224,19 @@
       if (h4ptr < TREND_LOOKBACK && TREND_USE_H4_FILTER) continue;
       const dir4 = TREND_USE_H4_FILTER ? trendDirectionTF(h4, h4ptr, TREND_LOOKBACK) : 0;
       if (TREND_USE_H4_FILTER && dir4 === 0) continue;
+      // Spike-hazard gate: once enough gap history exists (same
+      // SPIKE_MIN_GAPS_FOR_STATS threshold used elsewhere) and elapsed time
+      // since the last spike has reached SPIKE_ENTRY_FRACTION of the
+      // running mean gap, a spike reads as "due" — no new grind entry
+      // until the next one resets the clock. Before enough gap history
+      // exists, this can't judge hazard yet, so it stays permissive
+      // (doesn't block) rather than silently skipping a large stretch of
+      // early history just for lack of stats.
+      if (useSpikeFilter && spikePtr >= 0 && spikeGaps.length >= SPIKE_MIN_GAPS_FOR_STATS){
+        const meanGap = spikeGaps.reduce((a,b)=>a+b,0)/spikeGaps.length;
+        const elapsed = i - spikeList[spikePtr].index;
+        if (meanGap && elapsed/meanGap >= SPIKE_ENTRY_FRACTION) continue;
+      }
       const atrVal = computeATR(h1, i-1, ATR_PERIOD);
       const ch1 = donchianChannel(h1, i-1, ENTRY_PERIOD);
       const ch2 = donchianChannel(h1, i-1, ENTRY_PERIOD2);
