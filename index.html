@@ -207,7 +207,7 @@
     <div class="quote" id="quote">–</div>
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
-      <button data-s="trend" id="btnTrend">Trend Following (Donchian)</button>
+      <button data-s="trend" id="btnTrend" title="Boom/Crash only — Donchian breakout entries locked to the instrument's structural grind direction (short-only on Boom, long-only on Crash), never the spike direction. New; not yet backtested.">Grind Trend Following (Boom/Crash)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
@@ -218,7 +218,7 @@
       <option value="8">~4.5 years</option>
     </select>
     <button class="tbtn" id="btnBacktest" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Run Backtest</button>
-    <button class="tbtn" id="btnMaxSelectivity" title="Sets Mean Reversion's min regime margin and Trend Following's H4-confirmed TP to their tightest/highest-conviction values. Doesn't change entry logic or stops — only tightens filters that already exist. Whichever strategy tab you're on when you run the backtest is the one that setting affects." style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Max Selectivity Preset</button>
+    <button class="tbtn" id="btnMaxSelectivity" title="Sets Mean Reversion's min regime margin and Grind Trend Following's H4-confirmed TP to their tightest/highest-conviction values. Doesn't change entry logic or stops — only tightens filters that already exist. Whichever strategy tab you're on when you run the backtest is the one that setting affects." style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Max Selectivity Preset</button>
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
@@ -278,7 +278,7 @@
       <p style="font-family:var(--mono);font-size:10.8px;color:var(--faint);line-height:1.7;margin-top:10px">
         <b>Multi-timeframe strip</b> — 1m/5m/15m/1H streamed independently; each has its own structure. <b>Swings</b> — fractal highs/lows (2 bars either side). <b>BOS</b> — close breaks the last swing with the trend. <b>CHoCH</b> — breaks against it, flipping the bias.<br>
         <b>Mean Reversion</b> — BB(20,2σ) + RSI(2) extreme, both required, per Connors' short-term reversal research. An H4 regime filter blocks only counter-trend fades. TP1 targets the BB mid, TP2 stretches beyond it, SL is ATR(14)×1.5, with a 10-bar time-stop. Runs on whichever timeframe tab is selected.<br>
-        <b>Trend Following</b> — H4 trend (price vs. its own 200-bar SMA) must agree with an H1 Donchian(20) breakout. SL starts at ATR(14)×2, trails at ATR(14)×3, or exits on a Donchian(10) breach — whichever comes first. Fixed to H1/H4 regardless of the timeframe strip. Optional H4-confirmed R:R target, off by default (pure trailing).<br>
+        <b>Grind Trend Following</b> — H1 Donchian(20) breakout, locked to the instrument's structural grind direction (Boom grinds down between up-spikes, short-only; Crash grinds up between down-spikes, long-only), optionally also requiring H4 trend agreement. SL starts at ATR(14)×2, trails at ATR(14)×3, or exits on a Donchian(10) breach — whichever comes first. Fixed to H1/H4 regardless of the timeframe strip. Optional H4-confirmed R:R target, off by default (pure trailing).<br>
         <b>Disclosure log</b> — stored only in this browser, on this device.
       </p>
     </details>
@@ -1082,7 +1082,7 @@
     return {result:'open', R:0, exitIndex:hist.length-1, units:units.length};
   }
 
-  // ---------- Trend Following (Donchian breakout + ATR trailing stop) ----------
+  // ---------- Grind Trend Following (Donchian breakout, grind-direction-locked, + ATR trailing stop) ----------
   // Mirrors the corrected TSMOM_Donchian_EA.mq5: an H4 momentum-sign trend
   // filter gates an H1 Donchian(20) breakout entry; the stop starts at
   // ATR(14)*2 and trails at ATR(14)*3, or the trade exits on a Donchian(10)
@@ -1396,8 +1396,10 @@
     const ch2 = donchianChannel(h1, i-1, ENTRY_PERIOD2);
     if (!atrVal || !ch1 || !ch2) return null;
     const price = h1[i].close;
-    const wantBull = TREND_USE_H4_FILTER ? dir4===1 : true;
-    const wantBear = TREND_USE_H4_FILTER ? dir4===-1 : true;
+    const spikeDir = spikeDirectionFor(curSym);
+    const grindDir = spikeDir === 'up' ? 'bear' : spikeDir === 'down' ? 'bull' : null;
+    const wantBull = (TREND_USE_H4_FILTER ? dir4===1 : true) && (!grindDir || grindDir==='bull');
+    const wantBear = (TREND_USE_H4_FILTER ? dir4===-1 : true) && (!grindDir || grindDir==='bear');
     // The backtest's "last trade" skip-filter needs closed-trade history
     // this live view doesn't persist across reloads, so it isn't applied
     // here. Instead System 1 is checked first and System 2 is always
@@ -1513,14 +1515,14 @@
   // actually tested rather than re-described as "all".
   const STRATEGY_VALIDATION = {
     meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
-    trend:   {label:'No broad edge',      detail:'483 episodes across 12 forex/metals majors, weighted avg ≈ −0.07R, consistently negative — confirmed negative on the original 10 Boom/Crash instruments too (10/10, 1H)', cls:'val-thin'},
+    trend:   {label:'Not yet tested',      detail:'Redesigned as Grind Trend Following — entries now locked to the instrument\'s structural grind direction instead of the old bidirectional breakout. The prior "no broad edge" result (483 episodes, 12 forex/metals majors + 10 Boom/Crash, all negative) describes that old bidirectional logic, not this one — it doesn\'t carry over. No real evidence gathered yet for this version.', cls:'val-thin'},
     spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
   };
 
   function strategyLabel(){
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
     if (curStrategy==='spike_fade') return 'Bounded-Time Fade (Boom/Crash)';
-    return 'Trend Following (Donchian)';
+    return 'Grind Trend Following (Boom/Crash)';
   }
   function effectiveTfLabel(){
     if (curStrategy==='trend') return 'H1/H4 (fixed)';
@@ -1764,7 +1766,7 @@
 
     const cells = [
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket},
-      {key:'trend', label:'Trend Following', ticket:trendTicket},
+      {key:'trend', label:'Grind Trend Following', ticket:trendTicket},
       {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult}
     ];
     strip.innerHTML = cells.map(cell => {
@@ -1884,7 +1886,7 @@
 
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
-    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='spike_fade'?'Bounded-Time Fade':'Trend Following';
+    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='spike_fade'?'Bounded-Time Fade':'Grind Trend Following';
     const tfLbl = tf ? TF_LABELS[tf] : strat==='spike_fade' ? '1m' : 'H1/H4';
     const body = strat==='spike_fade'
       ? `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nExit by ~${ticket.exitAtMin.toFixed(0)}m (mean gap ≈${ticket.meanGapMin.toFixed(0)}m) — no fixed price target`
@@ -2034,9 +2036,20 @@
       R: grossR
     };
   }
-  function simulateTrendBacktest(h1, h4){
+  function simulateTrendBacktest(h1, h4, sym){
     const trades = [];
     let h4ptr = -1, openPos = null;
+    // Grind Trend-Following: on Boom/Crash, the instrument's construction
+    // (see spikeDirectionFor) means price grinds in the OPPOSITE direction
+    // to its spike between spikes — Boom spikes up and grinds down, Crash
+    // spikes down and grinds up. Rather than a generic bidirectional
+    // Donchian breakout, entries are locked to that grind direction only:
+    // short-only on Boom, long-only on Crash. On any symbol where
+    // spikeDirectionFor returns null (no longer reachable via the
+    // dropdown, but the function stays symbol-general), this is a no-op
+    // and behaves exactly like the original bidirectional breakout.
+    const spikeDir = spikeDirectionFor(sym);
+    const grindDir = spikeDir === 'up' ? 'bear' : spikeDir === 'down' ? 'bull' : null;
     // "Last trade" filter (the Turtles' actual rule): skip the next System 1
     // breakout in a direction if the PRIOR closed Trend trade in that same
     // direction was a winner, falling back to System 2's longer (55-bar)
@@ -2136,8 +2149,8 @@
       // same direction are less likely, so fall back to the higher-
       // conviction, less-frequent signal rather than skip the direction
       // entirely.
-      const wantBull = TREND_USE_H4_FILTER ? dir4===1 : true;
-      const wantBear = TREND_USE_H4_FILTER ? dir4===-1 : true;
+      const wantBull = (TREND_USE_H4_FILTER ? dir4===1 : true) && (!grindDir || grindDir==='bull');
+      const wantBear = (TREND_USE_H4_FILTER ? dir4===-1 : true) && (!grindDir || grindDir==='bear');
       let dir = null, sys = null;
       if (wantBull && price > ch1.hi){
         if (!TREND_USE_LAST_TRADE_FILTER || lastWinByDir.bull !== true){ dir='bull'; sys=1; }
@@ -2172,7 +2185,7 @@
     const meta = lastBacktestMeta;
     const symLabel = $('symbol').selectedOptions[0].text;
     const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2'
-      : meta.strat==='trend' ? 'Trend_Following_Donchian'
+      : meta.strat==='trend' ? 'Grind_Trend_Following'
       : meta.strat==='spike_fade' ? 'Bounded_Time_Fade'
       : meta.strat==='spike_late' ? 'Late_Cycle_Entry' : meta.strat;
     const tfPart = meta.strat==='trend' ? 'H1H4aligned' : TF_LABELS[meta.tf];
@@ -2331,7 +2344,7 @@
 
     const symLabel = $('symbol').selectedOptions[0].text;
     const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)'
-      : meta.strat==='trend' ? 'Trend Following (Donchian)'
+      : meta.strat==='trend' ? 'Grind Trend Following (Boom/Crash)'
       : meta.strat==='spike_fade' ? 'Bounded-Time Fade'
       : meta.strat==='spike_late' ? 'Late-Cycle Entry' : meta.strat;
     const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : TF_LABELS[meta.tf];
@@ -2478,7 +2491,7 @@
     if (bucket.kind === 'trend' && bucket.h1 && bucket.h4){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running trailing-stop walk-forward across ${bucket.h1.length} H1 bars…</div></div>`;
       setTimeout(() => {
-        const trades = simulateTrendBacktest(bucket.h1, bucket.h4);
+        const trades = simulateTrendBacktest(bucket.h1, bucket.h4, bucket.sym);
         const meta = {purpose:'backtest_trend', sym:bucket.sym, strat:'trend'};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.h1, meta);
         else renderBacktestResults(trades, bucket.h1, meta);
@@ -2586,7 +2599,7 @@
   // no math and applies no extra filtering, so a "0 signals" or "no edge"
   // row here is exactly what a manual run would have shown too.
   function strategyLabelFor(s){
-    return s==='meanrev' ? 'Mean Reversion' : s==='trend' ? 'Trend Following'
+    return s==='meanrev' ? 'Mean Reversion' : s==='trend' ? 'Grind Trend Following'
       : s==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
@@ -2596,7 +2609,7 @@
     // strategy, including the Boom/Crash-only spike_late/spike_fade ones
     // (see spikeDirectionFor) that used to stay opt-in against a much
     // broader, mostly-non-Boom/Crash symbol list.
-    const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
+    const stratDefs = [['meanrev','Mean Reversion'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
     // The #symbol dropdown is scoped to just the 14 Boom/Crash instruments
