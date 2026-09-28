@@ -207,6 +207,7 @@
     <div class="quote" id="quote">–</div>
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
+      <button data-s="meanrev_grind" id="btnMRGrind" title="Boom/Crash only — same BB(20,2σ)+RSI(2) reversion entries as Mean Reversion, but locked to the instrument's structural grind direction (long-only on Crash, short-only on Boom) instead of both directions. Side-by-side with Mean Reversion, not a replacement — new, not yet backtested.">Grind Pullback (Boom/Crash)</button>
       <button data-s="trend" id="btnTrend" title="Boom/Crash only — Donchian breakout entries locked to the instrument's structural grind direction (short-only on Boom, long-only on Crash), never the spike direction. New; not yet backtested.">Grind Trend Following (Boom/Crash)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
@@ -732,7 +733,7 @@
   // Directional exclusivity (Part 25) falls out naturally: once in a
   // WAIT_*_REVERSAL state, an opposite-direction extreme is simply ignored
   // until the current setup resolves (confirms or expires).
-  function computeMRState(c, endIdx){
+  function computeMRState(c, endIdx, allowedDir){
     let state='IDLE', dir=null, extremeIdx=null, confirmIdx=null;
     const minStart = MR_BB_PERIOD + MR_ATR_PERIOD + 2;
     const lookback = Math.max(30, MR_MAX_CONFIRM_BARS + 10);
@@ -741,8 +742,13 @@
       const sig = computeMRSignals(c, i);
       if (!sig) continue;
       if (state==='IDLE'){
-        if (sig.isBullExtreme){ state='WAIT_BULL_REVERSAL'; dir='bull'; extremeIdx=i; confirmIdx=null; }
-        else if (sig.isBearExtreme){ state='WAIT_BEAR_REVERSAL'; dir='bear'; extremeIdx=i; confirmIdx=null; }
+        // allowedDir (Grind Pullback only) restricts which extreme can even
+        // start a setup — an opposite-direction extreme is simply not seen,
+        // same as if it hadn't happened, rather than entering a wait state
+        // that would just time out. Plain Mean Reversion passes no
+        // allowedDir and both directions behave exactly as before.
+        if ((!allowedDir || allowedDir==='bull') && sig.isBullExtreme){ state='WAIT_BULL_REVERSAL'; dir='bull'; extremeIdx=i; confirmIdx=null; }
+        else if ((!allowedDir || allowedDir==='bear') && sig.isBearExtreme){ state='WAIT_BEAR_REVERSAL'; dir='bear'; extremeIdx=i; confirmIdx=null; }
       } else if (state==='WAIT_BULL_REVERSAL'){
         if (i - extremeIdx > MR_MAX_CONFIRM_BARS){ state='IDLE'; dir=null; extremeIdx=null; }
         else if (i > extremeIdx && sig.isBullConfirm){ state='BULL_CONFIRMED'; confirmIdx=i; }
@@ -835,7 +841,11 @@
     const d = decimalsFor(curSym);
     return validateTicket({
       dir, label:'MeanRev V2', entry, sl, tp1, tp2, rr1, rr2, decimals:d,
-      key: `meanrev|${curSym}|${curTf}|${dir}|${c[extremeIdx].epoch}`,
+      // curStrategy (not a hardcoded 'meanrev') so Grind Pullback tickets
+      // are tracked separately from plain Mean Reversion's for disclosure-
+      // log/notification dedup — the two run side by side and could
+      // otherwise produce colliding keys on the same symbol/bar/direction.
+      key: `${curStrategy}|${curSym}|${curTf}|${dir}|${c[extremeIdx].epoch}`,
       regimeMargin: regime.regimeMargin,
       extremeEpoch: c[extremeIdx].epoch,
       confirmEpoch: c[confirmIdx].epoch,
@@ -855,11 +865,11 @@
   // BACKTEST path — c is fully historical/closed data; c[c.length-1] is the
   // bar currently being evaluated by the walk-forward loop. Fires only when
   // that bar IS the entry bar (confirmation closed on the previous bar).
-  function buildMeanReversionTicket(c, h4Data){
+  function buildMeanReversionTicket(c, h4Data, allowedDir){
     lastMRDiagnostic = null;
     if (!c || c.length < MR_BB_PERIOD+MR_ATR_PERIOD+2) return null;
     const i = c.length-1;
-    const mr = computeMRState(c, i);
+    const mr = computeMRState(c, i, allowedDir);
     if (mr.state !== 'BULL_ENTRY_BAR' && mr.state !== 'BEAR_ENTRY_BAR'){
       const diag = mrDiagText(mr);
       lastMRDiagnostic = { dir: mr.dir, state: diag.state, reason: diag.reason, regime: null, regimeMargin: null };
@@ -876,11 +886,11 @@
   // currently-forming candle IS the entry bar — its OPEN is a real, known
   // value (opens don't change after a candle starts, only high/low/close
   // do), so this is an accurate live price, not an estimate.
-  function buildMeanReversionTicketLive(c, h4Data){
+  function buildMeanReversionTicketLive(c, h4Data, allowedDir){
     lastMRDiagnostic = null;
     if (!c || c.length < MR_BB_PERIOD+MR_ATR_PERIOD+3) return null;
     const closedIdx = c.length-2;
-    const mr = computeMRState(c, closedIdx);
+    const mr = computeMRState(c, closedIdx, allowedDir);
     if (mr.state !== 'BULL_CONFIRMED' && mr.state !== 'BEAR_CONFIRMED'){
       const diag = mrDiagText(mr);
       lastMRDiagnostic = { dir: mr.dir, state: diag.state, reason: diag.reason, regime: null, regimeMargin: null };
@@ -1231,6 +1241,15 @@
     if (sym.startsWith('CRASH')) return 'down';
     return null;
   }
+  // The structural grind direction between spikes — opposite the spike
+  // itself (Boom spikes up, grinds down; Crash spikes down, grinds up).
+  // Shared by Grind Trend Following and Grind Pullback so both strategies
+  // derive the same directional lock from the same single fact rather than
+  // duplicating the up/down -> bear/bull mapping in three places.
+  function grindDirFor(sym){
+    const spikeDir = spikeDirectionFor(sym);
+    return spikeDir === 'up' ? 'bear' : spikeDir === 'down' ? 'bull' : null;
+  }
   function simulateSpikeTiming(candles, direction, mode){
     const spikes = detectSpikes(candles, direction);
     const trades = [];
@@ -1396,8 +1415,7 @@
     const ch2 = donchianChannel(h1, i-1, ENTRY_PERIOD2);
     if (!atrVal || !ch1 || !ch2) return null;
     const price = h1[i].close;
-    const spikeDir = spikeDirectionFor(curSym);
-    const grindDir = spikeDir === 'up' ? 'bear' : spikeDir === 'down' ? 'bull' : null;
+    const grindDir = grindDirFor(curSym);
     const wantBull = (TREND_USE_H4_FILTER ? dir4===1 : true) && (!grindDir || grindDir==='bull');
     const wantBear = (TREND_USE_H4_FILTER ? dir4===-1 : true) && (!grindDir || grindDir==='bear');
     // The backtest's "last trade" skip-filter needs closed-trade history
@@ -1515,12 +1533,14 @@
   // actually tested rather than re-described as "all".
   const STRATEGY_VALIDATION = {
     meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, cost-adjusted edge found specifically on Crash 600/1000 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode)', cls:'val-thin'},
+    meanrev_grind: {label:'Not yet tested', detail:'Side-by-side with Mean Reversion, not a replacement — same BB(20,2σ)+RSI(2) reversion entries, but locked to the instrument\'s structural grind direction (long-only Crash, short-only Boom) instead of both directions. No real evidence gathered yet.', cls:'val-thin'},
     trend:   {label:'Not yet tested',      detail:'Redesigned as Grind Trend Following — entries now locked to the instrument\'s structural grind direction instead of the old bidirectional breakout. The prior "no broad edge" result (483 episodes, 12 forex/metals majors + 10 Boom/Crash, all negative) describes that old bidirectional logic, not this one — it doesn\'t carry over. No real evidence gathered yet for this version.', cls:'val-thin'},
     spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
   };
 
   function strategyLabel(){
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
+    if (curStrategy==='meanrev_grind') return 'Grind Pullback (Boom/Crash)';
     if (curStrategy==='spike_fade') return 'Bounded-Time Fade (Boom/Crash)';
     return 'Grind Trend Following (Boom/Crash)';
   }
@@ -1586,6 +1606,10 @@
       let msg;
       if (curStrategy==='meanrev'){
         msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.';
+      } else if (curStrategy==='meanrev_grind'){
+        const gd = grindDirFor(curSym);
+        const gdTxt = gd==='bull' ? 'long-only' : gd==='bear' ? 'short-only' : 'not Boom/Crash \u2014 no grind direction';
+        msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : `Watching for a BB(20,2\u03c3) + RSI(2) extreme in the grind direction (${gdTxt}).`;
       } else if (curStrategy==='spike_fade'){
         const s = lastFadeStatus;
         if (!s || s.phase==='not_applicable') msg = 'Bounded-Time Fade only applies to Boom/Crash symbols — pick one above (e.g. Crash 600, Boom 900).';
@@ -1760,19 +1784,27 @@
 
   function renderStrategyStrip(candles, swings, structure){
     const strip = $('strategystrip');
+    // lastMRDiagnostic is overwritten by each buildMeanReversionTicketLive
+    // call, so each one's own diagnostic must be captured immediately
+    // after — otherwise the grind-locked call below would clobber plain
+    // Mean Reversion's diagnostic before it gets read for that cell.
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
+    const mrDiag = lastMRDiagnostic;
+    const mrGrindTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400], grindDirFor(curSym));
+    const mrGrindDiag = lastMRDiagnostic;
     const trendTicket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
 
     const cells = [
-      {key:'meanrev', label:'Mean Reversion', ticket:mrTicket},
+      {key:'meanrev', label:'Mean Reversion', ticket:mrTicket, diag:mrDiag},
+      {key:'meanrev_grind', label:'Grind Pullback', ticket:mrGrindTicket, diag:mrGrindDiag},
       {key:'trend', label:'Grind Trend Following', ticket:trendTicket},
       {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult}
     ];
     strip.innerHTML = cells.map(cell => {
       let biasLabel = 'idle', biasClass = 'neutral';
       if (cell.ticket){ biasLabel = (cell.ticket.dir==='bull'?'Bullish':'Bearish')+' · '+cell.ticket.label; biasClass = cell.ticket.dir==='bull'?'bull':'bear'; }
-      else if (cell.key==='meanrev' && lastMRDiagnostic && lastMRDiagnostic.state && lastMRDiagnostic.state !== 'MR_IDLE'){ biasLabel = lastMRDiagnostic.state.replace('MR_','').replace(/_/g,' ').toLowerCase(); biasClass='neutral'; }
+      else if ((cell.key==='meanrev' || cell.key==='meanrev_grind') && cell.diag && cell.diag.state && cell.diag.state !== 'MR_IDLE'){ biasLabel = cell.diag.state.replace('MR_','').replace(/_/g,' ').toLowerCase(); biasClass='neutral'; }
       else if (cell.key==='spike_fade' && cell.fadeStatus){
         const p = cell.fadeStatus.phase;
         biasLabel = p==='not_applicable' ? 'n/a (not Boom/Crash)' : p==='insufficient' ? 'insufficient data' : p==='grinding' ? 'grinding' : p==='exit_zone' ? 'exit zone' : 'idle';
@@ -1881,12 +1913,12 @@
     }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
-    return buildMeanReversionTicketLive(c, candlesByTf[14400]);
+    return buildMeanReversionTicketLive(c, candlesByTf[14400], strat==='meanrev_grind' ? grindDirFor(curSym) : null);
   }
 
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
-    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='spike_fade'?'Bounded-Time Fade':'Grind Trend Following';
+    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='meanrev_grind'?'Grind Pullback':strat==='spike_fade'?'Bounded-Time Fade':'Grind Trend Following';
     const tfLbl = tf ? TF_LABELS[tf] : strat==='spike_fade' ? '1m' : 'H1/H4';
     const body = strat==='spike_fade'
       ? `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nExit by ~${ticket.exitAtMin.toFixed(0)}m (mean gap ≈${ticket.meanGapMin.toFixed(0)}m) — no fixed price target`
@@ -1927,6 +1959,8 @@
     let ticket;
     if (curStrategy === 'meanrev'){
       ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
+    } else if (curStrategy === 'meanrev_grind'){
+      ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400], grindDirFor(curSym));
     } else if (curStrategy === 'spike_fade'){
       const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       lastFadeStatus = fadeResult;
@@ -1954,7 +1988,7 @@
   // loop (Trend Following has its own open-position engine, simulateTrendBacktest,
   // below). h4 is Mean Reversion's regime filter data.
   let lastBacktestNeverFilled = 0;
-  function simulateBacktest(hist, h4){
+  function simulateBacktest(hist, h4, allowedDir){
     const WINDOW = MAXC;
     let lastKey = null;
     const trades = [];
@@ -1968,7 +2002,7 @@
         while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
         h4Slice = h4ptr >= 0 ? h4.slice(Math.max(0, h4ptr-120), h4ptr+1) : null;
       }
-      const ticket = buildMeanReversionTicket(windowed, h4Slice);
+      const ticket = buildMeanReversionTicket(windowed, h4Slice, allowedDir);
       if (!ticket) continue;
       if (ticket.key === lastKey) continue;
       lastKey = ticket.key;
@@ -2048,8 +2082,7 @@
     // spikeDirectionFor returns null (no longer reachable via the
     // dropdown, but the function stays symbol-general), this is a no-op
     // and behaves exactly like the original bidirectional breakout.
-    const spikeDir = spikeDirectionFor(sym);
-    const grindDir = spikeDir === 'up' ? 'bear' : spikeDir === 'down' ? 'bull' : null;
+    const grindDir = grindDirFor(sym);
     // "Last trade" filter (the Turtles' actual rule): skip the next System 1
     // breakout in a direction if the PRIOR closed Trend trade in that same
     // direction was a winner, falling back to System 2's longer (55-bar)
@@ -2185,6 +2218,7 @@
     const meta = lastBacktestMeta;
     const symLabel = $('symbol').selectedOptions[0].text;
     const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2'
+      : meta.strat==='meanrev_grind' ? 'Grind_Pullback_BB_RSI2'
       : meta.strat==='trend' ? 'Grind_Trend_Following'
       : meta.strat==='spike_fade' ? 'Bounded_Time_Fade'
       : meta.strat==='spike_late' ? 'Late_Cycle_Entry' : meta.strat;
@@ -2309,10 +2343,17 @@
   // primary win/loss read rather than silently folded into SL) and the same
   // raw n/win-rate/avg-R math, so neither view can quietly disagree with the
   // other about what a "win" or a "signal" means.
+  // Grind Pullback (meanrev_grind) runs through the exact same
+  // simulateMeanReversionTradeV2/buildMeanReversionTicket pipeline as
+  // Mean Reversion — only the entry direction differs — so everywhere
+  // downstream display code branches on "is this a Mean Reversion-family
+  // result" (AMBIGUOUS same-candle exclusion, time-stop counting, the
+  // regime-margin badge/breakdown), both strategies belong together.
+  function isMR(strat){ return strat==='meanrev' || strat==='meanrev_grind'; }
   function summarizeClosedTrades(trades, strat){
     const allClosed = trades.filter(t => t.result !== 'open');
-    const ambiguous = strat==='meanrev' ? allClosed.filter(t => t.result==='AMBIGUOUS') : [];
-    const closed = strat==='meanrev' ? allClosed.filter(t => t.result!=='AMBIGUOUS') : allClosed;
+    const ambiguous = isMR(strat) ? allClosed.filter(t => t.result==='AMBIGUOUS') : [];
+    const closed = isMR(strat) ? allClosed.filter(t => t.result!=='AMBIGUOUS') : allClosed;
     const n = closed.length;
     const wins = closed.filter(t => t.R > 0).length;
     const totalR = closed.reduce((s,t)=>s+t.R, 0);
@@ -2340,10 +2381,11 @@
     const fullLosses = closed.filter(t => label(t)==='SL').length;
     const tp1tp2 = closed.filter(t => label(t)==='TP1+TP2').length;
     const tp1be = closed.filter(t => label(t)==='TP1+BE').length;
-    const timeStops = meta.strat==='meanrev' ? closed.filter(t => t.timeStop).length : 0;
+    const timeStops = isMR(meta.strat) ? closed.filter(t => t.timeStop).length : 0;
 
     const symLabel = $('symbol').selectedOptions[0].text;
     const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)'
+      : meta.strat==='meanrev_grind' ? 'Grind Pullback (Boom/Crash)'
       : meta.strat==='trend' ? 'Grind Trend Following (Boom/Crash)'
       : meta.strat==='spike_fade' ? 'Bounded-Time Fade'
       : meta.strat==='spike_late' ? 'Late-Cycle Entry' : meta.strat;
@@ -2356,7 +2398,7 @@
     // Ambiguous trades excluded here too, for consistency with the primary
     // stats above — they'd otherwise quietly leak into the "Corrected"
     // episode stats and split-half verdict.
-    const tradesForMetrics = meta.strat==='meanrev' ? trades.filter(t => t.result!=='AMBIGUOUS') : trades;
+    const tradesForMetrics = isMR(meta.strat) ? trades.filter(t => t.result!=='AMBIGUOUS') : trades;
     const isSpikeStrat = meta.strat==='spike_late' || meta.strat==='spike_fade';
     const m = computeAdvancedMetrics(tradesForMetrics, isSpikeStrat ? 0 : 10);
     const verdict = m ? backtestVerdict(m) : {text:'No closed trades to assess', cls:'val-thin'};
@@ -2364,7 +2406,7 @@
     const slot = $('backtestslot');
     slot.innerHTML = `
       <div class="btpanel">
-        <h3>Backtest — ${symLabel} · ${tfLabel} · ${stratLabel}${meta.htfFiltered ? ' · H4-filtered' : ''}${meta.strat==='meanrev' && MR_MIN_REGIME_MARGIN>0 ? ` · min regime margin ${MR_MIN_REGIME_MARGIN.toFixed(1)}` : ''}${meta.strat==='trend' && TREND_TP_RR>0 ? ` · H4-confirmed TP ${TREND_TP_RR.toFixed(2)}R` : ''}</h3>
+        <h3>Backtest — ${symLabel} · ${tfLabel} · ${stratLabel}${meta.htfFiltered ? ' · H4-filtered' : ''}${isMR(meta.strat) && MR_MIN_REGIME_MARGIN>0 ? ` · min regime margin ${MR_MIN_REGIME_MARGIN.toFixed(1)}` : ''}${meta.strat==='trend' && TREND_TP_RR>0 ? ` · H4-confirmed TP ${TREND_TP_RR.toFixed(2)}R` : ''}</h3>
         <div class="btmeta">${hist.length} bars · ${dateRange} · walk-forward, no lookahead (same rolling ${MAXC}-bar buffer the live tool uses) · spread cost applied: ${spreadCostR.toFixed(2)}R/trade · ${lastBacktestNeverFilled} signal(s) never reached entry and were excluded (would not have been real fills)</div>
         <div class="btverdict ${verdict.cls}">${verdict.text}</div>
         <div class="ticket-actions" style="margin:12px 0">
@@ -2383,7 +2425,7 @@
           <div class="btcell"><div class="v">${fullLosses}</div><div class="k">full SL</div></div>
         </div>
 
-        ${meta.strat==='meanrev' ? `
+        ${isMR(meta.strat) ? `
         <h3 style="font-size:12px;color:var(--faint);margin:16px 0 8px">V2-specific breakdown (excluded from the stats above and below — shown separately per Part 18's ambiguity rule)</h3>
         <div class="btgrid">
           <div class="btcell"><div class="v">${ambiguous.length}</div><div class="k">ambiguous (SL+target same candle — outcome unknowable from OHLC, excluded from win/loss stats)</div></div>
@@ -2424,7 +2466,7 @@
           <div class="btcell"><div class="v ${m.shAvg>=0?'pos':'neg'}">${m.shAvg>=0?'+':''}${m.shAvg.toFixed(3)}R</div><div class="k">second half avg (${m.shWin.toFixed(0)}% win)</div></div>
         </div>` : ''}
 
-        ${meta.strat==='meanrev' ? (() => {
+        ${isMR(meta.strat) ? (() => {
           const mrb = summarizeMRByRegimeMargin(trades);
           if (!mrb) return `<div class="btnote" style="margin-top:16px">Not enough regime-margin data yet to break down by borderline-vs-clean calls (need H4 data + ≥6 closed trades).</div>`;
           return `
@@ -2502,7 +2544,8 @@
     if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf)){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
-        const trades = simulateBacktest(bucket.data, bucket.htf || null);
+        const allowedDir = bucket.strat === 'meanrev_grind' ? grindDirFor(bucket.sym) : null;
+        const trades = simulateBacktest(bucket.data, bucket.htf || null, allowedDir);
         const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
         else renderBacktestResults(trades, bucket.data, meta);
@@ -2572,7 +2615,7 @@
     // avoid firing an excessive number of requests on 1m.
     const rawDepth = Number($('btDepth').value);
     const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
-    const wantHtf = strat === 'meanrev'; // Mean Reversion's H4 regime filter
+    const wantHtf = strat === 'meanrev' || strat === 'meanrev_grind'; // H4 regime filter
     if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}…</div></div>`;
     const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
     pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, data_pages:[], onComplete};
@@ -2599,7 +2642,7 @@
   // no math and applies no extra filtering, so a "0 signals" or "no edge"
   // row here is exactly what a manual run would have shown too.
   function strategyLabelFor(s){
-    return s==='meanrev' ? 'Mean Reversion' : s==='trend' ? 'Grind Trend Following'
+    return s==='meanrev' ? 'Mean Reversion' : s==='meanrev_grind' ? 'Grind Pullback' : s==='trend' ? 'Grind Trend Following'
       : s==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
@@ -2609,7 +2652,7 @@
     // strategy, including the Boom/Crash-only spike_late/spike_fade ones
     // (see spikeDirectionFor) that used to stay opt-in against a much
     // broader, mostly-non-Boom/Crash symbol list.
-    const stratDefs = [['meanrev','Mean Reversion'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
+    const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
     // The #symbol dropdown is scoped to just the 14 Boom/Crash instruments
@@ -2748,6 +2791,7 @@
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
+  $('btnMRGrind').addEventListener('click', () => { setStrategy('meanrev_grind'); });
   $('btnMaxSelectivity').addEventListener('click', () => {
     // Tightens the two existing filters to their highest-conviction
     // settings. Doesn't touch entry logic, stops, or anything not already
@@ -2763,7 +2807,7 @@
 
   function setStrategy(s){
     curStrategy = s;
-    [['btnMR','meanrev'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    [['btnMR','meanrev'],['btnMRGrind','meanrev_grind'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
     savePrefs();
@@ -2782,9 +2826,9 @@
     if (typeof p.tf === 'number') curTf = p.tf;
     if (typeof p.risk === 'number') riskAmountInput = p.risk;
     if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
-    const strategy = (p.strategy === 'meanrev' || p.strategy === 'trend' || p.strategy === 'spike_fade') ? p.strategy : 'meanrev';
+    const strategy = ['meanrev','meanrev_grind','trend','spike_fade'].includes(p.strategy) ? p.strategy : 'meanrev';
     curStrategy = strategy;
-    [['btnMR','meanrev'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
+    [['btnMR','meanrev'],['btnMRGrind','meanrev_grind'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
   })();
 
   updateSession();
