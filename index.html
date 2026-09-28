@@ -175,41 +175,6 @@
     </div>
     <div class="controls">
       <select id="symbol">
-        <optgroup label="Forex / Metals">
-          <option value="frxEURUSD" selected>EUR/USD</option>
-          <option value="frxGBPUSD">GBP/USD</option>
-          <option value="frxUSDJPY">USD/JPY</option>
-          <option value="frxAUDUSD">AUD/USD</option>
-          <option value="frxUSDCAD">USD/CAD</option>
-          <option value="frxUSDCHF">USD/CHF</option>
-          <option value="frxNZDUSD">NZD/USD</option>
-          <option value="frxEURGBP">EUR/GBP</option>
-          <option value="frxEURJPY">EUR/JPY</option>
-          <option value="frxGBPJPY">GBP/JPY</option>
-          <option value="frxEURAUD">EUR/AUD</option>
-          <option value="frxEURCAD">EUR/CAD</option>
-          <option value="frxEURCHF">EUR/CHF</option>
-          <option value="frxGBPAUD">GBP/AUD</option>
-          <option value="frxXAUUSD">XAU/USD (Gold)</option>
-          <option value="frxXAGUSD">XAG/USD (Silver)</option>
-        </optgroup>
-        <optgroup label="Volatility Indices">
-          <option value="R_10">Volatility 10</option>
-          <option value="R_25">Volatility 25</option>
-          <option value="R_50">Volatility 50</option>
-          <option value="R_75">Volatility 75</option>
-          <option value="R_100">Volatility 100</option>
-        </optgroup>
-        <optgroup label="Volatility (1s)">
-          <option value="1HZ10V">Volatility 10 (1s)</option>
-          <option value="1HZ15V">Volatility 15 (1s)</option>
-          <option value="1HZ25V">Volatility 25 (1s)</option>
-          <option value="1HZ30V">Volatility 30 (1s)</option>
-          <option value="1HZ50V">Volatility 50 (1s)</option>
-          <option value="1HZ75V">Volatility 75 (1s)</option>
-          <option value="1HZ90V">Volatility 90 (1s)</option>
-          <option value="1HZ100V">Volatility 100 (1s)</option>
-        </optgroup>
         <optgroup label="Boom / Crash">
           <option value="BOOM50">Boom 50</option>
           <option value="BOOM150N">Boom 150</option>
@@ -222,39 +187,9 @@
           <option value="CRASH150N">Crash 150</option>
           <option value="CRASH300N">Crash 300</option>
           <option value="CRASH500">Crash 500</option>
-          <option value="CRASH600">Crash 600</option>
+          <option value="CRASH600" selected>Crash 600</option>
           <option value="CRASH900">Crash 900</option>
           <option value="CRASH1000">Crash 1000</option>
-        </optgroup>
-        <optgroup label="Step">
-          <option value="stpRNG">Step 100</option>
-          <option value="stpRNG2">Step 200</option>
-          <option value="stpRNG3">Step 300</option>
-          <option value="stpRNG4">Step 400</option>
-          <option value="stpRNG5">Step 500</option>
-        </optgroup>
-        <optgroup label="Jump">
-          <option value="JD10">Jump 10</option>
-          <option value="JD25">Jump 25</option>
-          <option value="JD50">Jump 50</option>
-          <option value="JD75">Jump 75</option>
-          <option value="JD100">Jump 100</option>
-        </optgroup>
-        <optgroup label="Cryptocurrency">
-          <option value="cryBTCUSD">BTC/USD</option>
-          <option value="cryETHUSD">ETH/USD</option>
-        </optgroup>
-        <optgroup label="Forex (Minor Pairs)">
-          <option value="frxAUDCAD">AUD/CAD</option>
-          <option value="frxAUDCHF">AUD/CHF</option>
-          <option value="frxAUDNZD">AUD/NZD</option>
-          <option value="frxEURNZD">EUR/NZD</option>
-          <option value="frxGBPCAD">GBP/CAD</option>
-          <option value="frxGBPCHF">GBP/CHF</option>
-          <option value="frxGBPNZD">GBP/NZD</option>
-          <option value="frxUSDMXN">USD/MXN</option>
-          <option value="frxUSDPLN">USD/PLN</option>
-          <option value="frxNZDJPY">NZD/JPY</option>
         </optgroup>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
@@ -2656,24 +2591,20 @@
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
-    // Late-Cycle Entry / Bounded-Time Fade are unchecked by default — new,
-    // still-unproven strategies that only apply to Boom/Crash symbols (see
-    // spikeDirectionFor); opt in explicitly rather than firing alongside a
-    // routine Mean Reversion/Trend Following run.
+    // All four checked by default: the symbol universe is scoped to just
+    // Boom/Crash right now specifically to run a full sweep across every
+    // strategy, including the Boom/Crash-only spike_late/spike_fade ones
+    // (see spikeDirectionFor) that used to stay opt-in against a much
+    // broader, mostly-non-Boom/Crash symbol list.
     const stratDefs = [['meanrev','Mean Reversion'],['trend','Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
-    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" ${v==='spike_late'||v==='spike_fade'?'':'checked'}> ${l}</label>`).join('');
+    $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // Default-check the forex/metals majors only — a first scan should be
-    // fast, and these are the instruments with a real order-book behind
-    // them (unlike Deriv's synthetic indices, which are a continuously-
-    // generated RNG process with no actual participant footprints for
-    // SMC-style structure concepts to detect). Everything else is opt-in —
-    // every symbol is still a checkbox here (now covering all instruments
-    // in the #symbol dropdown, synthetics and real markets alike), so any
-    // pair can be scanned; use "Select all symbols" to check them all at
-    // once instead of one by one.
-    const defaultOn = new Set(['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD','frxUSDCHF','frxNZDUSD','frxXAUUSD']);
-    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" ${defaultOn.has(o.value)?'checked':''}> ${o.textContent}</label>`).join('');
+    // The #symbol dropdown is scoped to just the 14 Boom/Crash instruments
+    // for now (everything else disabled per direct request), so a "first
+    // scan" default subset doesn't apply the way it did across a much
+    // larger universe — default-check all of them, since the whole point
+    // right now is a full sweep across every Boom/Crash symbol.
+    $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" checked> ${o.textContent}</label>`).join('');
   }
   function renderBatchTable(){
     const wrap = $('batchResultsWrap');
