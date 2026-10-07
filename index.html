@@ -1350,15 +1350,28 @@
   function buildSpikeFadeTicketLive(c, sym){
     const direction = spikeDirectionFor(sym);
     if (!direction) return { phase:'not_applicable' };
-    if (!c || c.length < SPIKE_BASELINE_LOOKBACK + SPIKE_MIN_GAPS_FOR_STATS + 2) return { phase:'insufficient' };
-    const spikes = detectSpikes(c, direction);
+    if (!c || c.length < SPIKE_BASELINE_LOOKBACK + SPIKE_MIN_GAPS_FOR_STATS + 3) return { phase:'insufficient' };
+    // Closed-candle discipline (same fix already applied to
+    // buildMeanReversionTicketLive, for the identical reason — see its own
+    // comment): c's last element is overwritten in place on every tick
+    // while that minute is still forming (see the ohlc handler), so spike
+    // detection and the elapsed/mean-gap read must only ever see candles
+    // that have actually finished. Using the still-forming candle directly
+    // here (the bug, until now) meant the displayed entry/SL kept drifting
+    // as that candle continued to move — right after a spike, the single
+    // most volatile moment on the chart — so what got shown routinely
+    // didn't match what the trade actually filled at by the time it was
+    // placed. The backtest never had this problem: every bar it evaluates
+    // is, by construction, already closed.
+    const closed = c.slice(0, c.length-1);
+    const closedIdx = closed.length-1;
+    const spikes = detectSpikes(closed, direction);
     if (spikes.length < SPIKE_MIN_GAPS_FOR_STATS + 1) return { phase:'insufficient' };
     const gaps = [];
     for (let k=1; k<spikes.length; k++) gaps.push(spikes[k].index - spikes[k-1].index);
     const meanGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
     const lastSpike = spikes[spikes.length-1];
-    const i = c.length-1;
-    const elapsedMin = i - lastSpike.index;
+    const elapsedMin = closedIdx - lastSpike.index;
     const posDir = direction==='up' ? 'bear' : 'bull';
     const exitAtMin = SPIKE_FADE_EXIT_FRACTION * meanGap;
     const status = { direction, posDir, elapsedMin, meanGapMin: meanGap, exitAtMin, lastSpikeEpoch: lastSpike.epoch };
@@ -1369,16 +1382,24 @@
     // page open on that exact minute, so this widens the actionable window
     // to the first few bars after a spike (SPIKE_MIN_GAP_CANDLES — the same
     // tolerance detectSpikes already uses to collapse a multi-candle spike
-    // print into one event). Display-only; the backtest itself is untouched.
+    // print into one event). Still only ever evaluated against closed bars
+    // above; this widening is a separate, pre-existing, still-unevidenced
+    // relaxation — only the elapsed===1 case is covered by the strategy's
+    // 10/10 backtested evidence, elapsed 2-3 entries are an untested
+    // convenience on top of it.
     if (elapsedMin >= 1 && elapsedMin <= SPIKE_MIN_GAP_CANDLES){
-      const atrVal = computeATR(c, i-1, 14);
+      const atrVal = computeATR(closed, closedIdx-1, 14);
       const risk = atrVal ? atrVal*SPIKE_FADE_SL_ATR_MULT : 0;
-      const entry = c[i].close;
+      // Entry = the just-closed trigger bar's close — but by the time
+      // that's known, the next bar has already started, and on a
+      // continuous feed (no gaps) its OPEN is the same price and, unlike
+      // close, is fixed the instant it starts rather than still moving.
+      const entry = c[c.length-1].open;
       if (risk > 0 && risk >= Math.abs(entry)*MIN_RISK_FRACTION){
         const sl = posDir==='bull' ? entry-risk : entry+risk;
         return Object.assign(status, {
           phase:'entry', dir:posDir, label:'Bounded-Time Fade', entry, sl, decimals: decimalsFor(sym),
-          key: `fade|${sym}|${posDir}|${c[i].epoch}`
+          key: `fade|${sym}|${posDir}|${closed[closedIdx].epoch}`
         });
       }
     }
