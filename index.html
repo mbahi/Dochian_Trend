@@ -47,9 +47,11 @@
   .status .pulse{width:7px;height:7px;border-radius:50%;background:var(--faint)}
   .status .pulse.on{background:var(--brass);box-shadow:0 0 6px var(--brass)}
 
-  /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once */
-  .mtf{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  .mtf-cell{flex:1;min-width:110px;background:var(--ledger);border:1px solid var(--line);border-radius:9px;
+  /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once.
+     Grid with auto-fit (not flex+wrap) so cells reflow evenly at any width instead of leaving an
+     odd leftover row (e.g. 4 strategy-strip cells going 3-then-1) — same technique .btgrid already uses. */
+  .mtf{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px}
+  .mtf-cell{background:var(--ledger);border:1px solid var(--line);border-radius:9px;
     padding:9px 12px;font-family:var(--mono);cursor:pointer;transition:border-color .15s}
   .mtf-cell.active{border-color:var(--brass)}
   .mtf-cell .tf{font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint)}
@@ -61,9 +63,26 @@
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
   .quote.up{color:var(--brass)} .quote.down{color:var(--steel)}
   .symname{font-family:var(--serif);font-size:15px;color:var(--dim)}
-  .strategy-toggle{display:flex;gap:6px;background:var(--ledger);border:1px solid var(--line);border-radius:8px;padding:3px}
+  /* Grid, not flex: with 4 strategies now (was 2-3 when this was flex with no
+     wrap), a plain flex row either squeezed all 4 into illegible slivers or
+     silently overflowed the screen width — on a 375px phone the 4th button
+     (Bounded-Time Fade) was pushed off-screen entirely, with no scroll
+     affordance to reach it. auto-fit reflows to 2x2 (or fewer columns) at
+     narrow widths and stays a single row wherever there's room, same
+     technique as .mtf/.btgrid above. flex:1 1 320px (this element is itself
+     a flex child of .quote-row, alongside the symbol/quote text) matters
+     just as much as the grid change: without a flex-basis, it had no real
+     width budget to hand its own grid at all and collapsed to a single
+     ~140px column no matter how much screen space was actually free. A
+     320px basis is enough to fit 2 of the 140px grid columns; flex-grow:1
+     then lets it fill the whole row once .quote-row wraps it onto its own
+     line (which it always does at phone widths, and usually does even on
+     desktop since symbol+price+4 buttons rarely fit one row anyway). */
+  .strategy-toggle{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;
+    flex:1 1 580px;
+    background:var(--ledger);border:1px solid var(--line);border-radius:8px;padding:3px}
   .strategy-toggle button{font-family:var(--mono);font-size:10.5px;letter-spacing:0.03em;text-transform:uppercase;
-    background:none;border:none;color:var(--faint);padding:6px 11px;border-radius:6px;cursor:pointer}
+    background:none;border:none;color:var(--faint);padding:10px 11px;border-radius:6px;cursor:pointer;line-height:1.3}
   .strategy-toggle button.active{background:var(--brass);color:#0f1826;font-weight:600}
 
   .chartcard{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
@@ -163,6 +182,29 @@
     border:1px solid rgba(181,72,77,0.35);border-radius:6px;padding:8px 10px;margin-top:8px}
 
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  /* Mobile pass — this page is mainly used from a phone in practice. Keeps
+     the same dense "ledger" layout on desktop; only widens tap targets and
+     prevents a couple of narrow-screen-specific overflow/cramping issues
+     that only show up under ~480px. */
+  @media (max-width:480px){
+    body{padding:10px}
+    /* Native checkbox/radio boxes default to ~13px — comfortable to read,
+       cramped to actually tap. Doesn't affect their associated label text. */
+    input[type=checkbox], input[type=radio]{width:17px;height:17px}
+    .tbtn{padding:10px 13px;font-size:11px}
+    .outcome-btn{padding:6px 10px;font-size:10.5px}
+    .logpanel .clear{padding:6px 10px;font-size:10.5px}
+    select{font-size:13px;padding:9px 10px}
+    #batchSymChecks label, #batchStratChecks label{padding:4px 2px}
+  }
+  /* Safety net for very narrow phones (iPhone SE-class, ~320-360px): the
+     ticket's Entry/SL/TP1/TP2 grid is 2-up above that width without issue,
+     but stack to 1 column rather than risk the longer labels ("TP1 (close
+     50%)") crowding the value on the smallest real devices this ships to. */
+  @media (max-width:360px){
+    .ticket-grid{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
