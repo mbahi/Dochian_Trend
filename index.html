@@ -47,9 +47,11 @@
   .status .pulse{width:7px;height:7px;border-radius:50%;background:var(--faint)}
   .status .pulse.on{background:var(--brass);box-shadow:0 0 6px var(--brass)}
 
-  /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once */
-  .mtf{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  .mtf-cell{flex:1;min-width:110px;background:var(--ledger);border:1px solid var(--line);border-radius:9px;
+  /* multi-timeframe bias strip - solves the "TF change is confusing" problem by showing all at once.
+     Grid with auto-fit (not flex+wrap) so cells reflow evenly at any width instead of leaving an
+     odd leftover row (e.g. 4 strategy-strip cells going 3-then-1) — same technique .btgrid already uses. */
+  .mtf{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px}
+  .mtf-cell{background:var(--ledger);border:1px solid var(--line);border-radius:9px;
     padding:9px 12px;font-family:var(--mono);cursor:pointer;transition:border-color .15s}
   .mtf-cell.active{border-color:var(--brass)}
   .mtf-cell .tf{font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint)}
@@ -61,9 +63,26 @@
   .quote{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
   .quote.up{color:var(--brass)} .quote.down{color:var(--steel)}
   .symname{font-family:var(--serif);font-size:15px;color:var(--dim)}
-  .strategy-toggle{display:flex;gap:6px;background:var(--ledger);border:1px solid var(--line);border-radius:8px;padding:3px}
+  /* Grid, not flex: with 4 strategies now (was 2-3 when this was flex with no
+     wrap), a plain flex row either squeezed all 4 into illegible slivers or
+     silently overflowed the screen width — on a 375px phone the 4th button
+     (Bounded-Time Fade) was pushed off-screen entirely, with no scroll
+     affordance to reach it. auto-fit reflows to 2x2 (or fewer columns) at
+     narrow widths and stays a single row wherever there's room, same
+     technique as .mtf/.btgrid above. flex:1 1 320px (this element is itself
+     a flex child of .quote-row, alongside the symbol/quote text) matters
+     just as much as the grid change: without a flex-basis, it had no real
+     width budget to hand its own grid at all and collapsed to a single
+     ~140px column no matter how much screen space was actually free. A
+     320px basis is enough to fit 2 of the 140px grid columns; flex-grow:1
+     then lets it fill the whole row once .quote-row wraps it onto its own
+     line (which it always does at phone widths, and usually does even on
+     desktop since symbol+price+4 buttons rarely fit one row anyway). */
+  .strategy-toggle{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;
+    flex:1 1 580px;
+    background:var(--ledger);border:1px solid var(--line);border-radius:8px;padding:3px}
   .strategy-toggle button{font-family:var(--mono);font-size:10.5px;letter-spacing:0.03em;text-transform:uppercase;
-    background:none;border:none;color:var(--faint);padding:6px 11px;border-radius:6px;cursor:pointer}
+    background:none;border:none;color:var(--faint);padding:10px 11px;border-radius:6px;cursor:pointer;line-height:1.3}
   .strategy-toggle button.active{background:var(--brass);color:#0f1826;font-weight:600}
 
   .chartcard{background:var(--ledger);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
@@ -163,6 +182,29 @@
     border:1px solid rgba(181,72,77,0.35);border-radius:6px;padding:8px 10px;margin-top:8px}
 
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  /* Mobile pass — this page is mainly used from a phone in practice. Keeps
+     the same dense "ledger" layout on desktop; only widens tap targets and
+     prevents a couple of narrow-screen-specific overflow/cramping issues
+     that only show up under ~480px. */
+  @media (max-width:480px){
+    body{padding:10px}
+    /* Native checkbox/radio boxes default to ~13px — comfortable to read,
+       cramped to actually tap. Doesn't affect their associated label text. */
+    input[type=checkbox], input[type=radio]{width:17px;height:17px}
+    .tbtn{padding:10px 13px;font-size:11px}
+    .outcome-btn{padding:6px 10px;font-size:10.5px}
+    .logpanel .clear{padding:6px 10px;font-size:10.5px}
+    select{font-size:13px;padding:9px 10px}
+    #batchSymChecks label, #batchStratChecks label{padding:4px 2px}
+  }
+  /* Safety net for very narrow phones (iPhone SE-class, ~320-360px): the
+     ticket's Entry/SL/TP1/TP2 grid is 2-up above that width without issue,
+     but stack to 1 column rather than risk the longer labels ("TP1 (close
+     50%)") crowding the value on the smallest real devices this ships to. */
+  @media (max-width:360px){
+    .ticket-grid{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -207,8 +249,8 @@
     <div class="quote" id="quote">–</div>
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
-      <button data-s="meanrev_grind" id="btnMRGrind" title="Boom/Crash only — same BB(20,2σ)+RSI(2) reversion entries as Mean Reversion, but locked to the instrument's structural grind direction (long-only on Crash, short-only on Boom) instead of both directions. Side-by-side with Mean Reversion, not a replacement — new, not yet backtested.">Grind Pullback (Boom/Crash)</button>
-      <button data-s="trend" id="btnTrend" title="Boom/Crash only — Donchian breakout entries locked to the instrument's structural grind direction (short-only on Boom, long-only on Crash), never the spike direction. New; not yet backtested.">Grind Trend Following (Boom/Crash)</button>
+      <button data-s="meanrev_grind" id="btnMRGrind" title="Boom/Crash only — same BB(20,2σ)+RSI(2) reversion entries as Mean Reversion, but locked to the instrument's structural grind direction (long-only on Crash, short-only on Boom) instead of both directions. Side-by-side with Mean Reversion, not a replacement. Batch-tested 3 times: Boom 900 positive and reproducible in all 3 runs (promising, but still under the 100-episode bar); Crash 1000 unreliable, don't trust it. Not yet proven enough to trade live.">Grind Pullback (Boom/Crash)</button>
+      <button data-s="trend" id="btnTrend" title="Boom/Crash only — Donchian breakout entries locked to the instrument's structural grind direction (short-only on Boom, long-only on Crash), never the spike direction. Batch-tested 3 times across all 14 symbols: negative or inconsistent every time, worst specifically on Crash 600. Real evidence of no edge — avoid for live decisions.">Grind Trend Following (Boom/Crash)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
@@ -1350,15 +1392,28 @@
   function buildSpikeFadeTicketLive(c, sym){
     const direction = spikeDirectionFor(sym);
     if (!direction) return { phase:'not_applicable' };
-    if (!c || c.length < SPIKE_BASELINE_LOOKBACK + SPIKE_MIN_GAPS_FOR_STATS + 2) return { phase:'insufficient' };
-    const spikes = detectSpikes(c, direction);
+    if (!c || c.length < SPIKE_BASELINE_LOOKBACK + SPIKE_MIN_GAPS_FOR_STATS + 3) return { phase:'insufficient' };
+    // Closed-candle discipline (same fix already applied to
+    // buildMeanReversionTicketLive, for the identical reason — see its own
+    // comment): c's last element is overwritten in place on every tick
+    // while that minute is still forming (see the ohlc handler), so spike
+    // detection and the elapsed/mean-gap read must only ever see candles
+    // that have actually finished. Using the still-forming candle directly
+    // here (the bug, until now) meant the displayed entry/SL kept drifting
+    // as that candle continued to move — right after a spike, the single
+    // most volatile moment on the chart — so what got shown routinely
+    // didn't match what the trade actually filled at by the time it was
+    // placed. The backtest never had this problem: every bar it evaluates
+    // is, by construction, already closed.
+    const closed = c.slice(0, c.length-1);
+    const closedIdx = closed.length-1;
+    const spikes = detectSpikes(closed, direction);
     if (spikes.length < SPIKE_MIN_GAPS_FOR_STATS + 1) return { phase:'insufficient' };
     const gaps = [];
     for (let k=1; k<spikes.length; k++) gaps.push(spikes[k].index - spikes[k-1].index);
     const meanGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
     const lastSpike = spikes[spikes.length-1];
-    const i = c.length-1;
-    const elapsedMin = i - lastSpike.index;
+    const elapsedMin = closedIdx - lastSpike.index;
     const posDir = direction==='up' ? 'bear' : 'bull';
     const exitAtMin = SPIKE_FADE_EXIT_FRACTION * meanGap;
     const status = { direction, posDir, elapsedMin, meanGapMin: meanGap, exitAtMin, lastSpikeEpoch: lastSpike.epoch };
@@ -1369,16 +1424,24 @@
     // page open on that exact minute, so this widens the actionable window
     // to the first few bars after a spike (SPIKE_MIN_GAP_CANDLES — the same
     // tolerance detectSpikes already uses to collapse a multi-candle spike
-    // print into one event). Display-only; the backtest itself is untouched.
+    // print into one event). Still only ever evaluated against closed bars
+    // above; this widening is a separate, pre-existing, still-unevidenced
+    // relaxation — only the elapsed===1 case is covered by the strategy's
+    // 10/10 backtested evidence, elapsed 2-3 entries are an untested
+    // convenience on top of it.
     if (elapsedMin >= 1 && elapsedMin <= SPIKE_MIN_GAP_CANDLES){
-      const atrVal = computeATR(c, i-1, 14);
+      const atrVal = computeATR(closed, closedIdx-1, 14);
       const risk = atrVal ? atrVal*SPIKE_FADE_SL_ATR_MULT : 0;
-      const entry = c[i].close;
+      // Entry = the just-closed trigger bar's close — but by the time
+      // that's known, the next bar has already started, and on a
+      // continuous feed (no gaps) its OPEN is the same price and, unlike
+      // close, is fixed the instant it starts rather than still moving.
+      const entry = c[c.length-1].open;
       if (risk > 0 && risk >= Math.abs(entry)*MIN_RISK_FRACTION){
         const sl = posDir==='bull' ? entry-risk : entry+risk;
         return Object.assign(status, {
           phase:'entry', dir:posDir, label:'Bounded-Time Fade', entry, sl, decimals: decimalsFor(sym),
-          key: `fade|${sym}|${posDir}|${c[i].epoch}`
+          key: `fade|${sym}|${posDir}|${closed[closedIdx].epoch}`
         });
       }
     }
@@ -1566,7 +1629,7 @@
   const STRATEGY_VALIDATION = {
     meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, broad-based, cost-adjusted edge found specifically on Crash 600 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode; verified the edge survives dropping each symbol\'s 5 biggest winners, still +9R to +15R on the rest). Crash 1000 initially looked similar but doesn\'t hold up — traced its entire apparent edge to 5 outlier TIME_STOP trades out of 125; the other 120 net to ~0. Flips between "proven" and "no edge" across different windows/runs because of that, not real instability — treat it as unproven, not as a fourth validated symbol.', cls:'val-thin'},
     meanrev_grind: {label:'Not yet tested', detail:'Side-by-side with Mean Reversion, not a replacement — same BB(20,2σ)+RSI(2) reversion entries, but locked to the instrument\'s structural grind direction (long-only Crash, short-only Boom) instead of both directions. No real evidence gathered yet.', cls:'val-thin'},
-    trend:   {label:'Not yet tested',      detail:'Redesigned as Grind Trend Following — entries now locked to the instrument\'s structural grind direction instead of the old bidirectional breakout. The prior "no broad edge" result (483 episodes, 12 forex/metals majors + 10 Boom/Crash, all negative) describes that old bidirectional logic, not this one — it doesn\'t carry over. No real evidence gathered yet for this version.', cls:'val-thin'},
+    trend:   {label:'Tested negative — avoid for live decisions', detail:'Grind Trend Following was run through Batch Scan 3 separate times across all 14 Boom/Crash symbols. Negative or flip-sign-inconsistent every time, worst specifically on Crash 600 (-0.27R to -0.40R/episode across all 3 runs — the most negative result in the whole dataset). This is real, repeated, broad-based evidence of no edge, not an absence of testing — do not trade this live. The opt-in spike-hazard filter (?spikefilter=1) hasn\'t been evidenced yet and may or may not change this.', cls:'val-thin'},
     spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
   };
 
