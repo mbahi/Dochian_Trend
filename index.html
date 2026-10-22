@@ -2413,7 +2413,7 @@
     const atCap = wins.filter(r => r >= cap).length;
     return { n, median: pct(0.5), p75: pct(0.75), p90: pct(0.90), max: wins[n-1], pctAtCap: atCap/n*100 };
   }
-  function computeAdvancedMetrics(trades, gapBars){
+  function computeAdvancedMetrics(trades, gapBars, cap){
     const closed = trades.filter(t => t.result !== 'open');
     const n = closed.length;
     if (!n) return null;
@@ -2427,7 +2427,14 @@
     let peak=0, cum=0, maxDD=0;
     for (const t of chrono){ cum+=t.R; if (cum>peak) peak=cum; const dd=peak-cum; if (dd>maxDD) maxDD=dd; }
 
-    const CAP = 3.0;
+    // 3.0R is right for fixed-target strategies (Mean Reversion, Grind
+    // Pullback, spike strategies) but crushes a trend system's open-ended
+    // trailing-stop winners — Grind Trend Following passes a wider cap
+    // (20) for the same reason the sibling Structure Ledger project's own
+    // backtest standard splits this: "3R for fixed-target strategies; 20R
+    // for Trend Following, whose total is expected to come from a few
+    // large winners."
+    const CAP = cap == null ? 3.0 : cap;
     // gapBars defaults to 10 — collapsing signals within 10 bars of each
     // other assumes they're re-detections of the SAME underlying move
     // (true of Mean Reversion/Trend Following's ticket generation, which
@@ -2530,7 +2537,7 @@
     // episode stats and split-half verdict.
     const tradesForMetrics = isMR(meta.strat) ? trades.filter(t => t.result!=='AMBIGUOUS') : trades;
     const isSpikeStrat = meta.strat==='spike_late' || meta.strat==='spike_fade';
-    const m = computeAdvancedMetrics(tradesForMetrics, isSpikeStrat ? 0 : 10);
+    const m = computeAdvancedMetrics(tradesForMetrics, isSpikeStrat ? 0 : 10, meta.strat==='trend' ? 20 : 3.0);
     const verdict = m ? backtestVerdict(m) : {text:'No closed trades to assess', cls:'val-thin'};
 
     const slot = $('backtestslot');
@@ -2857,7 +2864,7 @@
   function handleBatchResult(item, trades, hist, meta){
     const {n, winRate, avgR} = summarizeClosedTrades(trades, item.strat);
     const isSpikeStrat = item.strat==='spike_late' || item.strat==='spike_fade';
-    const m = computeAdvancedMetrics(trades, isSpikeStrat ? 0 : 10);
+    const m = computeAdvancedMetrics(trades, isSpikeStrat ? 0 : 10, item.strat==='trend' ? 20 : 3.0);
     const verdict = m ? backtestVerdict(m) : {text: n ? 'No closed trades to assess' : 'No signals in this window', cls:'val-thin'};
     const idx = batchResults.findIndex(r => r.key === item.key);
     const row = {
