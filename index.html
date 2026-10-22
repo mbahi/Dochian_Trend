@@ -218,20 +218,11 @@
     <div class="controls">
       <select id="symbol">
         <optgroup label="Boom / Crash">
-          <option value="BOOM50">Boom 50</option>
-          <option value="BOOM150N">Boom 150</option>
-          <option value="BOOM300N">Boom 300</option>
-          <option value="BOOM500">Boom 500</option>
-          <option value="BOOM600">Boom 600</option>
           <option value="BOOM900">Boom 900</option>
-          <option value="BOOM1000">Boom 1000</option>
-          <option value="CRASH50">Crash 50</option>
-          <option value="CRASH150N">Crash 150</option>
-          <option value="CRASH300N">Crash 300</option>
-          <option value="CRASH500">Crash 500</option>
           <option value="CRASH600" selected>Crash 600</option>
-          <option value="CRASH900">Crash 900</option>
-          <option value="CRASH1000">Crash 1000</option>
+        </optgroup>
+        <optgroup label="Volatility">
+          <option value="R_25">Volatility 25</option>
         </optgroup>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
@@ -1703,8 +1694,11 @@
         msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : 'Watching for a BB(20,2\u03c3) + RSI(2) extreme.';
       } else if (curStrategy==='meanrev_grind'){
         const gd = grindDirFor(curSym);
-        const gdTxt = gd==='bull' ? 'long-only' : gd==='bear' ? 'short-only' : 'not Boom/Crash \u2014 no grind direction';
-        msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : `Watching for a BB(20,2\u03c3) + RSI(2) extreme in the grind direction (${gdTxt}).`;
+        if (!gd) msg = 'Grind Pullback only applies to Boom/Crash symbols \u2014 pick one above (e.g. Crash 600, Boom 900). Use the Mean Reversion tab for this symbol instead.';
+        else {
+          const gdTxt = gd==='bull' ? 'long-only' : 'short-only';
+          msg = lastMRDiagnostic ? `[${lastMRDiagnostic.state}] ${lastMRDiagnostic.reason}` : `Watching for a BB(20,2\u03c3) + RSI(2) extreme in the grind direction (${gdTxt}).`;
+        }
       } else if (curStrategy==='spike_fade'){
         const s = lastFadeStatus;
         if (!s || s.phase==='not_applicable') msg = 'Bounded-Time Fade only applies to Boom/Crash symbols — pick one above (e.g. Crash 600, Boom 900).';
@@ -1712,7 +1706,8 @@
         else if (s.phase==='grinding') msg = `[FADE_GRINDING] Last spike ${s.elapsedMin}m ago (mean gap \u2248${s.meanGapMin.toFixed(0)}m). No new entry until the next spike.`;
         else msg = `[FADE_EXIT_ZONE] ${s.elapsedMin}m since the last spike, past the ~${s.exitAtMin.toFixed(0)}m bounded-exit threshold (mean gap \u2248${s.meanGapMin.toFixed(0)}m). Model is flat here — next spike may be close.`;
       } else {
-        msg = 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
+        if (!spikeDirectionFor(curSym)) msg = 'Grind Trend Following only applies to Boom/Crash symbols — pick one above (e.g. Crash 600, Boom 900). Use the Mean Reversion tab for this symbol instead.';
+        else msg = 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
       }
       slot.innerHTML = `<div class="idle-ticket">${msg}</div>`;
       return;
@@ -1885,9 +1880,10 @@
     // Mean Reversion's diagnostic before it gets read for that cell.
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     const mrDiag = lastMRDiagnostic;
-    const mrGrindTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400], grindDirFor(curSym));
-    const mrGrindDiag = lastMRDiagnostic;
-    const trendTicket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    const gdNow = grindDirFor(curSym);
+    const mrGrindTicket = gdNow ? buildMeanReversionTicketLive(candles, candlesByTf[14400], gdNow) : null;
+    const mrGrindDiag = gdNow ? lastMRDiagnostic : null;
+    const trendTicket = gdNow ? buildTrendTicket(candlesByTf[3600], candlesByTf[14400]) : null;
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
 
     const cells = [
@@ -1899,6 +1895,7 @@
     strip.innerHTML = cells.map(cell => {
       let biasLabel = 'idle', biasClass = 'neutral';
       if (cell.ticket){ biasLabel = (cell.ticket.dir==='bull'?'Bullish':'Bearish')+' · '+cell.ticket.label; biasClass = cell.ticket.dir==='bull'?'bull':'bear'; }
+      else if ((cell.key==='trend' || cell.key==='meanrev_grind') && !gdNow){ biasLabel = 'n/a (not Boom/Crash)'; biasClass = 'neutral'; }
       else if ((cell.key==='meanrev' || cell.key==='meanrev_grind') && cell.diag && cell.diag.state && cell.diag.state !== 'MR_IDLE'){ biasLabel = cell.diag.state.replace('MR_','').replace(/_/g,' ').toLowerCase(); biasClass='neutral'; }
       else if (cell.key==='spike_fade' && cell.fadeStatus){
         const p = cell.fadeStatus.phase;
@@ -2001,13 +1998,14 @@
   });
 
   function buildTicketForNotify(strat, tf){
-    if (strat === 'trend') return buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+    if (strat === 'trend') return spikeDirectionFor(curSym) ? buildTrendTicket(candlesByTf[3600], candlesByTf[14400]) : null;
     if (strat === 'spike_fade'){
       const r = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       return r.phase === 'entry' ? r : null;
     }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
+    if (strat === 'meanrev_grind' && !grindDirFor(curSym)) return null;
     return buildMeanReversionTicketLive(c, candlesByTf[14400], strat==='meanrev_grind' ? grindDirFor(curSym) : null);
   }
 
@@ -2055,13 +2053,14 @@
     if (curStrategy === 'meanrev'){
       ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     } else if (curStrategy === 'meanrev_grind'){
-      ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400], grindDirFor(curSym));
+      const gd = grindDirFor(curSym);
+      ticket = gd ? buildMeanReversionTicketLive(candles, candlesByTf[14400], gd) : null;
     } else if (curStrategy === 'spike_fade'){
       const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       lastFadeStatus = fadeResult;
       ticket = fadeResult.phase === 'entry' ? fadeResult : null;
     } else {
-      ticket = buildTrendTicket(candlesByTf[3600], candlesByTf[14400]);
+      ticket = spikeDirectionFor(curSym) ? buildTrendTicket(candlesByTf[3600], candlesByTf[14400]) : null;
     }
 
     renderChart(candles, swings, structure);
@@ -2722,6 +2721,10 @@
   // depth selector is currently set to; a batch run for symbol X is exactly
   // what clicking "Run Backtest" on symbol X would have fetched and computed.
   function startBacktestFetch(sym, strat, tf, onComplete){
+    if ((strat === 'trend' || strat === 'meanrev_grind' || strat === 'spike_late' || strat === 'spike_fade') && !spikeDirectionFor(sym)){
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${strategyLabelFor(strat)} only applies to Boom/Crash symbols — not ${symbolLabel(sym)}.</div></div>`;
+      return null;
+    }
     if (strat === 'trend'){
       const depth = Number($('btDepth').value);
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4 history for ${symbolLabel(sym)}…</div></div>`;
@@ -2792,11 +2795,12 @@
     const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // The #symbol dropdown is scoped to just the 14 Boom/Crash instruments
-    // for now (everything else disabled per direct request), so a "first
-    // scan" default subset doesn't apply the way it did across a much
-    // larger universe — default-check all of them, since the whole point
-    // right now is a full sweep across every Boom/Crash symbol.
+    // The #symbol dropdown is scoped to 3 instruments to master (Boom 900,
+    // Crash 600, Volatility 25) per direct request — default-check all of
+    // them. Volatility 25 only supports Mean Reversion (see
+    // spikeDirectionFor/the needsBoomCrash check in runBatchScan below);
+    // checking it alongside the Boom/Crash-only strategies is harmless,
+    // those combos are filtered out of the queue rather than run.
     $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" checked> ${o.textContent}</label>`).join('');
   }
   function renderBatchTable(){
@@ -2908,7 +2912,8 @@
     batchQueue = [];
     for (const sym of syms) for (const strat of strats){
       const isSpike = strat==='spike_late' || strat==='spike_fade';
-      if (isSpike && !spikeDirectionFor(sym)) continue; // Boom/Crash only — skip silently rather than show a meaningless N/A row
+      const needsBoomCrash = isSpike || strat==='trend' || strat==='meanrev_grind';
+      if (needsBoomCrash && !spikeDirectionFor(sym)) continue; // Boom/Crash only — skip silently rather than show a meaningless N/A row
       batchQueue.push({sym, strat, tf: isSpike ? 60 : curTf, key: sym+'|'+strat});
     }
     batchResults = [];
