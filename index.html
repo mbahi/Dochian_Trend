@@ -438,19 +438,36 @@
     for (const tf of FETCH_TFS) requestTfSubscription(tf, 0);
   }
 
-  // A single timeframe's ticks_history+subscribe can come back with a
-  // transient server-side error (seen in practice: "internal server error")
-  // even while the other timeframes succeed. Previously that left the failed
-  // timeframe permanently blank ("–") until the user reloaded or switched
-  // symbols — nothing ever retried it. Retry with backoff instead; only give
-  // up after a few tries, and never retry into a symbol the user has since
-  // switched away from.
+  // A single timeframe's ticks_history can come back with a transient
+  // server-side error (seen in practice: "internal server error") even while
+  // the other timeframes succeed. Previously that left the failed timeframe
+  // permanently blank ("–") until the user reloaded or switched symbols —
+  // nothing ever retried it. Retry with backoff instead; only give up after
+  // a few tries, and never retry into a symbol the user has since switched
+  // away from.
+  //
+  // History and the live feed are requested in two separate steps —
+  // combining a deep `count` with `subscribe:1` in one request (the
+  // original design) bundles the app's least reliable call (a large
+  // historical fetch) with the one thing that must never fail silently
+  // (the live tick stream), so a transient history-side error kept taking
+  // the live feed down with it. requestTfSubscription fetches history only;
+  // once it succeeds, requestTfLiveFeed separately subscribes with a
+  // minimal count just to keep receiving 'ohlc' ticks going forward.
   function requestTfSubscription(tf, retryCount, count){
     if (count == null) count = tf === 86400 ? DAILY_COUNT_FOR_AGGREGATION : MAXC;
     ws.send(JSON.stringify({
       ticks_history: curSym, style:'candles', granularity: tf,
-      count, end:'latest', subscribe:1,
-      passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount, count}
+      count, end:'latest',
+      passthrough: {purpose:'history', tf, sym: curSym, retryCount, count}
+    }));
+  }
+
+  function requestTfLiveFeed(tf, retryCount){
+    ws.send(JSON.stringify({
+      ticks_history: curSym, style:'candles', granularity: tf,
+      count: 2, end:'latest', subscribe:1,
+      passthrough: {purpose:'live', tf, sym: curSym, retryCount}
     }));
   }
 
@@ -517,7 +534,7 @@
           Object.assign({}, m.passthrough, {retried:true}));
         return;
       }
-      if (m.passthrough && m.passthrough.purpose === 'subscribe'){
+      if (m.passthrough && m.passthrough.purpose === 'history'){
         const {tf, sym, retryCount, count} = m.passthrough;
         if (sym !== curSym) return; // superseded by a symbol switch; that subscribeAll() already re-requested this tf
         if (retryCount < 3){
@@ -531,6 +548,20 @@
           }, 1500 * (retryCount + 1));
         } else {
           setStatus(false, `api: ${m.error.message} (${TF_LABELS[tf]||tf} still failing after 3 retries)`);
+        }
+        return;
+      }
+      if (m.passthrough && m.passthrough.purpose === 'live'){
+        const {tf, sym, retryCount} = m.passthrough;
+        if (sym !== curSym) return;
+        // History already loaded successfully by this point (only a 'history'
+        // success leads here) — a failure to (re-)establish the live tick feed
+        // is real but less urgent than losing history, so it retries quietly
+        // without claiming the whole timeframe is down in the status bar.
+        if (retryCount < 5){
+          setTimeout(() => {
+            if (ws && ws.readyState === 1 && curSym === sym) requestTfLiveFeed(tf, retryCount + 1);
+          }, 2000 * (retryCount + 1));
         }
         return;
       }
@@ -581,18 +612,37 @@
       if (LIST_SYMBOLS_MODE) renderSymbolListOverlay(m.active_symbols);
       return;
     }
-    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym){
+    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym && m.passthrough && m.passthrough.purpose === 'history'){
       const gran = m.echo_req.granularity;
       candlesByTf[gran] = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
       // A successful response for a timeframe that previously errored (see
-      // the 'subscribe' retry branch above) should clear the stale "api: ..."
+      // the 'history' retry branch above) should clear the stale "api: ..."
       // status text — otherwise it sticks on screen forever even after the
       // retry quietly fixed itself.
-      if (m.passthrough && m.passthrough.purpose === 'subscribe' && m.passthrough.retryCount > 0){
-        setStatus(true, 'live');
-      }
+      if (m.passthrough.retryCount > 0) setStatus(true, 'live');
       if (gran === 86400) refreshDerivedTfs();
+      requestTfLiveFeed(gran, 0); // history is in; now (re-)establish the ongoing tick stream
       renderAll();
+    }
+    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym && m.passthrough && m.passthrough.purpose === 'live'){
+      // This response's own small candle batch is just a side effect of how
+      // Deriv establishes a subscription — real history already came from
+      // the 'history' step above. Merge rather than overwrite, in case a
+      // candle closed in the gap between that fetch and this subscribe call;
+      // never replace the array outright (it would discard real history
+      // down to these 2 candles).
+      const gran = m.echo_req.granularity;
+      const arr = candlesByTf[gran];
+      if (arr){
+        for (const c of m.candles){
+          const cc = { epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close };
+          const last = arr[arr.length-1];
+          if (last && last.epoch === cc.epoch) arr[arr.length-1] = cc;
+          else if (!last || cc.epoch > last.epoch) arr.push(cc);
+        }
+        if (gran === 86400) refreshDerivedTfs();
+      }
+      return;
     }
     if (m.msg_type === 'ohlc' && m.ohlc.symbol === curSym){
       const gran = m.ohlc.granularity;
