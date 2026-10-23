@@ -409,12 +409,22 @@
     disclosedKey = null;
     lastUpdateTime = null;
     ws.send(JSON.stringify({forget_all:'candles'}));
-    for (const tf of TFS){
-      ws.send(JSON.stringify({
-        ticks_history: curSym, style:'candles', granularity: tf,
-        count: MAXC, end:'latest', subscribe:1
-      }));
-    }
+    for (const tf of TFS) requestTfSubscription(tf, 0);
+  }
+
+  // A single timeframe's ticks_history+subscribe can come back with a
+  // transient server-side error (seen in practice: "internal server error")
+  // even while the other timeframes succeed. Previously that left the failed
+  // timeframe permanently blank ("–") until the user reloaded or switched
+  // symbols — nothing ever retried it. Retry with backoff instead; only give
+  // up after a few tries, and never retry into a symbol the user has since
+  // switched away from.
+  function requestTfSubscription(tf, retryCount){
+    ws.send(JSON.stringify({
+      ticks_history: curSym, style:'candles', granularity: tf,
+      count: MAXC, end:'latest', subscribe:1,
+      passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount}
+    }));
   }
 
   function decimalsFor(sym){
@@ -439,6 +449,19 @@
         if (m.passthrough.retried){ renderBacktestError(`${m.passthrough.part.toUpperCase()} page ${m.passthrough.pageIndex+1}: ${m.error.message}`); delete pendingEABacktest[m.passthrough.runId]; return; }
         requestHistoryPage(m.passthrough.sym, m.passthrough.gran, Math.max(200, Math.round(m.passthrough.count/3)), m.passthrough.end || 'latest',
           Object.assign({}, m.passthrough, {retried:true}));
+        return;
+      }
+      if (m.passthrough && m.passthrough.purpose === 'subscribe'){
+        const {tf, sym, retryCount} = m.passthrough;
+        if (sym !== curSym) return; // superseded by a symbol switch; that subscribeAll() already re-requested this tf
+        if (retryCount < 3){
+          setStatus(false, `api: ${m.error.message} — retrying ${TF_LABELS[tf]||tf}… (${retryCount+1}/3)`);
+          setTimeout(() => {
+            if (ws && ws.readyState === 1 && curSym === sym) requestTfSubscription(tf, retryCount + 1);
+          }, 1500 * (retryCount + 1));
+        } else {
+          setStatus(false, `api: ${m.error.message} (${TF_LABELS[tf]||tf} still failing after 3 retries)`);
+        }
         return;
       }
       setStatus(false, 'api: ' + m.error.message); return;
@@ -481,6 +504,13 @@
     if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym){
       const gran = m.echo_req.granularity;
       candlesByTf[gran] = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
+      // A successful response for a timeframe that previously errored (see
+      // the 'subscribe' retry branch above) should clear the stale "api: ..."
+      // status text — otherwise it sticks on screen forever even after the
+      // retry quietly fixed itself.
+      if (m.passthrough && m.passthrough.purpose === 'subscribe' && m.passthrough.retryCount > 0){
+        setStatus(true, 'live');
+      }
       renderAll();
     }
     if (m.msg_type === 'ohlc' && m.ohlc.symbol === curSym){
