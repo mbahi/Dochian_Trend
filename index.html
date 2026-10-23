@@ -2096,6 +2096,17 @@
     const secs = Math.round((Date.now() - lastUpdateTime) / 1000);
     txt.textContent = secs < 60 ? `updated ${secs}s ago` : `updated ${Math.floor(secs/60)}m ago`;
     dot.className = 'dot ' + (secs < 15 ? 'live' : secs < 45 ? 'warn' : ''); // green / amber / grey(stale)
+    // A handful of requests (forget_all on every subscribeAll/symbol-switch,
+    // and anything else with no passthrough) have no retry path of their own
+    // and fall through to the bare generic "api: ..." status message, which
+    // then never clears itself even once the connection is clearly healthy
+    // again. Only touch that specific bare case — never a message still
+    // showing active retry progress ("retrying…"/"still failing"), which
+    // means something is genuinely, currently broken and should stay visible.
+    const cur = statustxt.textContent;
+    if (secs < 15 && cur.startsWith('api:') && !cur.includes('retrying') && !cur.includes('still failing')){
+      setStatus(true, 'live');
+    }
   }
 
 
