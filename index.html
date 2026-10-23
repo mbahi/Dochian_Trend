@@ -218,6 +218,7 @@
     <div class="controls">
       <select id="symbol">
         <option value="BOOM900" selected>Boom 900</option>
+        <option value="CRASH600">Crash 600</option>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
       <div class="session"><span class="dot" id="trenddot"></span><span id="trendtxt">Trend Filter: —</span></div>
@@ -2789,8 +2790,9 @@
     const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // The #symbol dropdown is scoped to Boom 900 only — the one instrument
-    // being mastered, per direct request — default-check it.
+    // The #symbol dropdown is scoped to Boom 900 and Crash 600 — the two
+    // instruments with real, outlier-robust Mean Reversion evidence — per
+    // direct request. Default-check both.
     $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" checked> ${o.textContent}</label>`).join('');
   }
   function renderBatchTable(){
