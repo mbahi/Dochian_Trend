@@ -609,25 +609,24 @@
       if (LIST_SYMBOLS_MODE) renderSymbolListOverlay(m.active_symbols);
       return;
     }
-    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym && m.passthrough && m.passthrough.purpose === 'history'){
-      const gran = m.echo_req.granularity;
-      candlesByTf[gran] = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
-      // A successful response for a timeframe that previously errored (see
-      // the 'history' retry branch above) should clear the stale "api: ..."
-      // status text — otherwise it sticks on screen forever even after the
-      // retry quietly fixed itself.
-      if (m.passthrough.retryCount > 0) setStatus(true, 'live');
-      if (gran === 86400) refreshDerivedTfs();
-      requestTfLiveFeed(gran, 0); // history is in; now (re-)establish the ongoing tick stream
-      renderAll();
-    }
-    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym && m.passthrough && m.passthrough.purpose === 'live'){
+    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym && m.echo_req.count === 2 && m.echo_req.subscribe){
+      // The minimal live-feed-establishing request (requestTfLiveFeed) always
+      // asks for exactly 2 candles — that alone (not passthrough, which this
+      // app has never actually confirmed Deriv echoes back for a `subscribe`
+      // request specifically, only for plain one-shot fetches) is what tells
+      // these two response shapes apart. Getting this wrong previously meant
+      // routing by m.passthrough.purpose alone, which — if real Deriv doesn't
+      // echo it here the way this app's own mock always faithfully did —
+      // would make EVERY response match neither branch below and vanish
+      // silently: connection shows "live", nothing ever renders, no error
+      // either. That exact symptom is what this rewrite fixes.
+      //
       // This response's own small candle batch is just a side effect of how
       // Deriv establishes a subscription — real history already came from
-      // the 'history' step above. Merge rather than overwrite, in case a
-      // candle closed in the gap between that fetch and this subscribe call;
-      // never replace the array outright (it would discard real history
-      // down to these 2 candles).
+      // the full fetch below. Merge rather than overwrite, in case a candle
+      // closed in the gap between that fetch and this subscribe call; never
+      // replace the array outright (it would discard real history down to
+      // these 2 candles).
       const gran = m.echo_req.granularity;
       const arr = candlesByTf[gran];
       if (arr){
@@ -640,6 +639,20 @@
         if (gran === 86400) refreshDerivedTfs();
       }
       return;
+    }
+    if (m.msg_type === 'candles' && m.echo_req.ticks_history === curSym){
+      const gran = m.echo_req.granularity;
+      candlesByTf[gran] = m.candles.map(c => ({epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close}));
+      // A successful response for a timeframe that previously errored (see
+      // the 'history' retry branch above) should clear the stale "api: ..."
+      // status text — otherwise it sticks on screen forever even after the
+      // retry quietly fixed itself. Guarded on passthrough being present
+      // since (per the note above) that isn't guaranteed — the self-heal in
+      // updateHealthDisplay is the reliable backstop for this either way.
+      if (m.passthrough && m.passthrough.retryCount > 0) setStatus(true, 'live');
+      if (gran === 86400) refreshDerivedTfs();
+      requestTfLiveFeed(gran, 0); // history is in; now (re-)establish the ongoing tick stream
+      renderAll();
     }
     if (m.msg_type === 'ohlc' && m.ohlc.symbol === curSym){
       const gran = m.ohlc.granularity;
