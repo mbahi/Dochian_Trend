@@ -337,7 +337,7 @@
   // curTf for Mean Reversion/Grind Pullback.
   const TFS = [900,3600,14400,86400,WEEK_TF,MONTH_TF];
   const TF_LABELS = {60:'1m',300:'5m',900:'15m',3600:'1H',14400:'4H',86400:'D1',[WEEK_TF]:'1W',[MONTH_TF]:'1M'};
-  let ws, curSym = document.getElementById('symbol').value, curTf = 900, curStrategy = 'meanrev';
+  let ws, curSym = document.getElementById('symbol').value, curTf = WEEK_TF, curStrategy = 'meanrev';
   let pendingEABacktest = {};
   let lastUpdateTime = null;
   let candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[],[WEEK_TF]:[],[MONTH_TF]:[]};
