@@ -319,15 +319,36 @@
 (() => {
   const APP_ID = '33TNMQDPo552FXscNPURC';
   const WS_URL = `wss://api.derivws.com/trading/v1/options/ws/public?app_id=${APP_ID}`;
-  const TFS = [60,300,900,3600,14400,86400];
-  const TF_LABELS = {60:'1m',300:'5m',900:'15m',3600:'1H',14400:'4H',86400:'D1'};
-  let ws, curSym = document.getElementById('symbol').value, curTf = 300, curStrategy = 'meanrev';
+  // Deriv weekly/monthly pseudo-granularities, in seconds: Deriv's
+  // ticks_history never supports a granularity past 86400 (daily), so these
+  // two are never requested from Deriv directly — they're derived client-side
+  // from candlesByTf[86400] (see deriveHigherTf below) and stored under these
+  // keys like any other timeframe, so the rest of the app (strip, curTf
+  // selection, ticket keys) treats them identically to a real one. 2592000
+  // (30 days) is a nominal value for places that need "seconds per bar" math
+  // (e.g. backtest depth scaling) — the actual monthly buckets themselves are
+  // aligned to real calendar months, not fixed 30-day windows.
+  const WEEK_TF = 604800, MONTH_TF = 2592000;
+  // What's actually fetched from Deriv. 60 (1m) stays even though it's not
+  // in the visible strip below — Bounded-Time Fade/Late-Cycle Entry depend
+  // on candlesByTf[60] directly regardless of what the strip shows.
+  const FETCH_TFS = [60,900,3600,14400,86400];
+  // What's shown in the MTF strip and selectable (by clicking a cell) as
+  // curTf for Mean Reversion/Grind Pullback.
+  const TFS = [900,3600,14400,86400,WEEK_TF,MONTH_TF];
+  const TF_LABELS = {60:'1m',300:'5m',900:'15m',3600:'1H',14400:'4H',86400:'D1',[WEEK_TF]:'1W',[MONTH_TF]:'1M'};
+  let ws, curSym = document.getElementById('symbol').value, curTf = 900, curStrategy = 'meanrev';
   let pendingEABacktest = {};
   let lastUpdateTime = null;
-  let candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[]};
+  let candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[],[WEEK_TF]:[],[MONTH_TF]:[]};
   let pipDecimals = {};
   let disclosedKey = null;
   const MAXC = 220;
+  // Weekly/Monthly need much deeper daily history than the other timeframes'
+  // MAXC=220 bars to produce a useful number of buckets (220 days is only
+  // ~7 months — barely 7-8 monthly candles). Fetch daily specifically with
+  // more depth; the other granularities keep MAXC.
+  const DAILY_COUNT_FOR_AGGREGATION = 2000; // ~5.5 years
   // Diagnostic-only: ?listsymbols=1 dumps Deriv's live active_symbols
   // response as an on-screen, screenshot-friendly overlay grouped by
   // submarket, so the real API symbol codes (e.g. for newer instruments
@@ -405,11 +426,11 @@
   }
 
   function subscribeAll(){
-    candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[]};
+    candlesByTf = {60:[],300:[],900:[],3600:[],14400:[],86400:[],[WEEK_TF]:[],[MONTH_TF]:[]};
     disclosedKey = null;
     lastUpdateTime = null;
     ws.send(JSON.stringify({forget_all:'candles'}));
-    for (const tf of TFS) requestTfSubscription(tf, 0);
+    for (const tf of FETCH_TFS) requestTfSubscription(tf, 0);
   }
 
   // A single timeframe's ticks_history+subscribe can come back with a
@@ -422,9 +443,40 @@
   function requestTfSubscription(tf, retryCount){
     ws.send(JSON.stringify({
       ticks_history: curSym, style:'candles', granularity: tf,
-      count: MAXC, end:'latest', subscribe:1,
+      count: tf === 86400 ? DAILY_COUNT_FOR_AGGREGATION : MAXC, end:'latest', subscribe:1,
       passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount}
     }));
+  }
+
+  // Groups daily candles into Weekly (Monday-anchored, UTC) or Monthly
+  // (calendar-month, UTC) buckets. The most recent bucket is typically still
+  // forming (same as how the live D1 candle itself is "forming" until the
+  // day closes) — that's expected, not a bug, and matches how every other
+  // timeframe in this app treats its own newest bar for the strip's informal
+  // bias read (only live TICKET builders discipline themselves to the last
+  // CLOSED bar; this informational strip never has).
+  function deriveHigherTf(daily, kind){
+    if (!daily || !daily.length) return [];
+    const bucketStart = kind === 'week'
+      ? t => { const d = new Date(t*1000); const day = (d.getUTCDay()+6)%7; d.setUTCDate(d.getUTCDate()-day); d.setUTCHours(0,0,0,0); return Math.floor(d.getTime()/1000); }
+      : t => { const d = new Date(t*1000); d.setUTCDate(1); d.setUTCHours(0,0,0,0); return Math.floor(d.getTime()/1000); };
+    const out = [];
+    for (const c of daily){
+      const b = bucketStart(c.epoch);
+      const last = out[out.length-1];
+      if (last && last.epoch === b){
+        last.high = Math.max(last.high, c.high);
+        last.low = Math.min(last.low, c.low);
+        last.close = c.close;
+      } else {
+        out.push({ epoch: b, open: c.open, high: c.high, low: c.low, close: c.close });
+      }
+    }
+    return out;
+  }
+  function refreshDerivedTfs(){
+    candlesByTf[WEEK_TF] = deriveHigherTf(candlesByTf[86400], 'week');
+    candlesByTf[MONTH_TF] = deriveHigherTf(candlesByTf[86400], 'month');
   }
 
   function decimalsFor(sym){
@@ -511,6 +563,7 @@
       if (m.passthrough && m.passthrough.purpose === 'subscribe' && m.passthrough.retryCount > 0){
         setStatus(true, 'live');
       }
+      if (gran === 86400) refreshDerivedTfs();
       renderAll();
     }
     if (m.msg_type === 'ohlc' && m.ohlc.symbol === curSym){
@@ -518,9 +571,11 @@
       if (!candlesByTf[gran]) return;
       const c = { epoch:m.ohlc.open_time, open:+m.ohlc.open, high:+m.ohlc.high, low:+m.ohlc.low, close:+m.ohlc.close };
       const arr = candlesByTf[gran];
+      const cap = gran === 86400 ? DAILY_COUNT_FOR_AGGREGATION : MAXC;
       const last = arr[arr.length-1];
       if (last && last.epoch === c.epoch){ arr[arr.length-1] = c; }
-      else { arr.push(c); if (arr.length > MAXC) arr.shift(); }
+      else { arr.push(c); if (arr.length > cap) arr.shift(); }
+      if (gran === 86400) refreshDerivedTfs();
       lastUpdateTime = Date.now();
       renderAll();
     }
@@ -2750,6 +2805,13 @@
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${strategyLabelFor(strat)} only applies to Boom/Crash symbols — not ${symbolLabel(sym)}.</div></div>`;
       return null;
     }
+    // Weekly/Monthly only exist as a client-side aggregate of candlesByTf[86400]
+    // for the live MTF strip (see deriveHigherTf) — Deriv's ticks_history has
+    // no such granularity to backtest against directly.
+    if ((strat === 'meanrev' || strat === 'meanrev_grind') && (tf === WEEK_TF || tf === MONTH_TF)){
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${TF_LABELS[tf]} isn't backtestable yet — it's a live-only view built from Daily data. Pick 15m/1H/4H/D1 to backtest ${strategyLabelFor(strat)}.</div></div>`;
+      return null;
+    }
     if (strat === 'trend'){
       const depth = Number($('btDepth').value);
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4 history for ${symbolLabel(sym)}…</div></div>`;
@@ -2936,6 +2998,12 @@
       const isSpike = strat==='spike_late' || strat==='spike_fade';
       const needsBoomCrash = isSpike || strat==='trend' || strat==='meanrev_grind';
       if (needsBoomCrash && !spikeDirectionFor(sym)) continue; // Boom/Crash only — skip silently rather than show a meaningless N/A row
+      // Weekly/Monthly are a live-only derived view (see deriveHigherTf) — not
+      // fetchable from Deriv for backtesting. startBacktestFetch would refuse
+      // this combo too, but batch items always pass an onComplete callback, so
+      // its early "return null" without calling onComplete would silently
+      // stall the whole batch loop rather than just skipping one row.
+      if ((strat==='meanrev' || strat==='meanrev_grind') && (curTf===WEEK_TF || curTf===MONTH_TF)) continue;
       batchQueue.push({sym, strat, tf: isSpike ? 60 : curTf, key: sym+'|'+strat});
     }
     batchResults = [];
@@ -2987,7 +3055,10 @@
     const p = loadPrefs();
     if (!p) return;
     if (p.sym && $('symbol').querySelector(`option[value="${p.sym}"]`)){ $('symbol').value = p.sym; curSym = p.sym; }
-    if (typeof p.tf === 'number') curTf = p.tf;
+    // A pref saved before Weekly/Monthly replaced 1m/5m in the strip could
+    // name a timeframe (e.g. 300) no longer fetched at all — only restore
+    // one that's still backed by real data.
+    if (typeof p.tf === 'number' && TFS.includes(p.tf)) curTf = p.tf;
     if (typeof p.risk === 'number') riskAmountInput = p.risk;
     if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
     const strategy = ['meanrev','meanrev_grind','trend','spike_fade'].includes(p.strategy) ? p.strategy : 'meanrev';
