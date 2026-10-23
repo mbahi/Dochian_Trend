@@ -422,7 +422,7 @@
     ws = new WebSocket(WS_URL);
     ws.onopen = () => {
       setStatus(true, 'live');
-      ws.send(JSON.stringify({active_symbols:'brief'}));
+      requestActiveSymbols(0);
       subscribeAll();
     };
     ws.onmessage = e => handle(JSON.parse(e.data));
@@ -452,6 +452,14 @@
       count, end:'latest', subscribe:1,
       passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount, count}
     }));
+  }
+
+  // Only used for pip-decimal precision (decimalsFor) and the ?listsymbols=1
+  // diagnostic — not required for the app's core data flow, but an unretried
+  // error here used to fall through to the generic status-bar fallback with
+  // no retry and no context, same class of bug as the per-timeframe one above.
+  function requestActiveSymbols(retryCount){
+    ws.send(JSON.stringify({ active_symbols:'brief', passthrough: {purpose:'active_symbols', retryCount} }));
   }
 
   // Groups daily candles into Weekly (Monday-anchored, UTC) or Monthly
@@ -524,6 +532,16 @@
         } else {
           setStatus(false, `api: ${m.error.message} (${TF_LABELS[tf]||tf} still failing after 3 retries)`);
         }
+        return;
+      }
+      if (m.passthrough && m.passthrough.purpose === 'active_symbols'){
+        const retryCount = m.passthrough.retryCount;
+        if (retryCount < 3){
+          setTimeout(() => { if (ws && ws.readyState === 1) requestActiveSymbols(retryCount + 1); }, 1500 * (retryCount + 1));
+        }
+        // Not surfaced to the status bar — pip precision/listsymbols are
+        // non-critical, and a failure here shouldn't read as a general
+        // connection problem the way a missing candle timeframe does.
         return;
       }
       setStatus(false, 'api: ' + m.error.message); return;
@@ -2134,7 +2152,29 @@
     updateTrendFilterBadge();
     const candles = candlesByTf[curTf];
     renderMTFStrip();
-    if (!candles || !candles.length) return;
+    // The header price/symbol line used to be set much further down, from
+    // candlesByTf[curTf] — meaning if the selected timeframe was slow to
+    // load (or, worse, one like Weekly that's itself derived from Daily and
+    // so depends on that fetch succeeding first), the header stayed frozen
+    // on its hardcoded HTML placeholder ("EUR/USD", "–") with no indication
+    // anything was happening. 1m is fetched unconditionally regardless of
+    // curTf (Bounded-Time Fade needs it), so it's a reliable, independent
+    // source for "what is the live price right now" — decoupled from
+    // whichever timeframe a strategy happens to be analyzing.
+    const quoteSrc = candlesByTf[60];
+    if (quoteSrc && quoteSrc.length){
+      const last = quoteSrc[quoteSrc.length-1];
+      const prev = quoteSrc[quoteSrc.length-2] || last;
+      const d = decimalsFor(curSym);
+      const q = $('quote');
+      q.textContent = last.close.toFixed(d);
+      q.className = 'quote ' + (last.close>=prev.close ? 'up':'down');
+    }
+    $('symlabel').textContent = $('symbol').selectedOptions[0].text;
+    if (!candles || !candles.length){
+      $('ticketslot').innerHTML = `<div class="idle-ticket">Waiting for ${TF_LABELS[curTf]||curTf} data to load…</div>`;
+      return;
+    }
     const swings = computeSwings(candles);
     const structure = computeStructureEvents(candles, swings);
     const amd = computeAMD(candles);
@@ -2156,14 +2196,6 @@
     renderChart(candles, swings, structure);
     renderAMDStrip(candles, amd);
     renderTicket(ticket);
-
-    const last = candles[candles.length-1];
-    const prev = candles[candles.length-2] || last;
-    const d = decimalsFor(curSym);
-    const q = $('quote');
-    q.textContent = last.close.toFixed(d);
-    q.className = 'quote ' + (last.close>=prev.close ? 'up':'down');
-    $('symlabel').textContent = $('symbol').selectedOptions[0].text;
   }
 
   // ---------- backtest engine ----------
