@@ -348,7 +348,12 @@
   // MAXC=220 bars to produce a useful number of buckets (220 days is only
   // ~7 months — barely 7-8 monthly candles). Fetch daily specifically with
   // more depth; the other granularities keep MAXC.
-  const DAILY_COUNT_FOR_AGGREGATION = 2000; // ~5.5 years
+  // 1000 matches this app's own established safe ticks_history count (see
+  // the backtest error handler's "retry once with a smaller count in case
+  // 5000 was rejected" fallback below) — a single, non-paginated subscribe
+  // request for 2000 was the likely cause of a reported "internal server
+  // error" on the daily feed specifically (the request this value drives).
+  const DAILY_COUNT_FOR_AGGREGATION = 1000; // ~2.7 years
   // Diagnostic-only: ?listsymbols=1 dumps Deriv's live active_symbols
   // response as an on-screen, screenshot-friendly overlay grouped by
   // submarket, so the real API symbol codes (e.g. for newer instruments
@@ -440,11 +445,12 @@
   // symbols — nothing ever retried it. Retry with backoff instead; only give
   // up after a few tries, and never retry into a symbol the user has since
   // switched away from.
-  function requestTfSubscription(tf, retryCount){
+  function requestTfSubscription(tf, retryCount, count){
+    if (count == null) count = tf === 86400 ? DAILY_COUNT_FOR_AGGREGATION : MAXC;
     ws.send(JSON.stringify({
       ticks_history: curSym, style:'candles', granularity: tf,
-      count: tf === 86400 ? DAILY_COUNT_FOR_AGGREGATION : MAXC, end:'latest', subscribe:1,
-      passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount}
+      count, end:'latest', subscribe:1,
+      passthrough: {purpose:'subscribe', tf, sym: curSym, retryCount, count}
     }));
   }
 
@@ -504,12 +510,16 @@
         return;
       }
       if (m.passthrough && m.passthrough.purpose === 'subscribe'){
-        const {tf, sym, retryCount} = m.passthrough;
+        const {tf, sym, retryCount, count} = m.passthrough;
         if (sym !== curSym) return; // superseded by a symbol switch; that subscribeAll() already re-requested this tf
         if (retryCount < 3){
+          // Shrink the daily feed's count on each retry too — a large
+          // single-shot count being the actual problem (not transient flakiness)
+          // would otherwise just fail the same way 3 times in a row.
+          const nextCount = tf === 86400 ? Math.max(200, Math.round((count||DAILY_COUNT_FOR_AGGREGATION)/2)) : count;
           setStatus(false, `api: ${m.error.message} — retrying ${TF_LABELS[tf]||tf}… (${retryCount+1}/3)`);
           setTimeout(() => {
-            if (ws && ws.readyState === 1 && curSym === sym) requestTfSubscription(tf, retryCount + 1);
+            if (ws && ws.readyState === 1 && curSym === sym) requestTfSubscription(tf, retryCount + 1, nextCount);
           }, 1500 * (retryCount + 1));
         } else {
           setStatus(false, `api: ${m.error.message} (${TF_LABELS[tf]||tf} still failing after 3 retries)`);
