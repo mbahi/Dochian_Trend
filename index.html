@@ -217,13 +217,8 @@
     </div>
     <div class="controls">
       <select id="symbol">
-        <optgroup label="Boom / Crash">
-          <option value="BOOM900">Boom 900</option>
-          <option value="CRASH600" selected>Crash 600</option>
-        </optgroup>
-        <optgroup label="Volatility">
-          <option value="R_25">Volatility 25</option>
-        </optgroup>
+        <option value="BOOM900" selected>Boom 900</option>
+        <option value="CRASH600">Crash 600</option>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
       <div class="session"><span class="dot" id="trenddot"></span><span id="trendtxt">Trend Filter: —</span></div>
@@ -2795,12 +2790,9 @@
     const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // The #symbol dropdown is scoped to 3 instruments to master (Boom 900,
-    // Crash 600, Volatility 25) per direct request — default-check all of
-    // them. Volatility 25 only supports Mean Reversion (see
-    // spikeDirectionFor/the needsBoomCrash check in runBatchScan below);
-    // checking it alongside the Boom/Crash-only strategies is harmless,
-    // those combos are filtered out of the queue rather than run.
+    // The #symbol dropdown is scoped to Boom 900 and Crash 600 — the two
+    // instruments with real, outlier-robust Mean Reversion evidence — per
+    // direct request. Default-check both.
     $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" checked> ${o.textContent}</label>`).join('');
   }
   function renderBatchTable(){
