@@ -217,8 +217,54 @@
     </div>
     <div class="controls">
       <select id="symbol">
-        <option value="BOOM900" selected>Boom 900</option>
-        <option value="CRASH600">Crash 600</option>
+        <optgroup label="Boom / Crash">
+          <option value="BOOM900" selected>Boom 900</option>
+          <option value="CRASH600">Crash 600</option>
+          <option value="BOOM300N">Boom 300</option>
+          <option value="BOOM500">Boom 500</option>
+          <option value="BOOM1000">Boom 1000</option>
+          <option value="CRASH300N">Crash 300</option>
+          <option value="CRASH500">Crash 500</option>
+          <option value="CRASH1000">Crash 1000</option>
+        </optgroup>
+        <optgroup label="Forex / Metals">
+          <option value="frxEURUSD">EUR/USD</option>
+          <option value="frxGBPUSD">GBP/USD</option>
+          <option value="frxUSDJPY">USD/JPY</option>
+          <option value="frxAUDUSD">AUD/USD</option>
+          <option value="frxUSDCAD">USD/CAD</option>
+          <option value="frxUSDCHF">USD/CHF</option>
+          <option value="frxNZDUSD">NZD/USD</option>
+          <option value="frxEURGBP">EUR/GBP</option>
+          <option value="frxEURJPY">EUR/JPY</option>
+          <option value="frxGBPJPY">GBP/JPY</option>
+          <option value="frxXAUUSD">XAU/USD (Gold)</option>
+          <option value="frxXAGUSD">XAG/USD (Silver)</option>
+        </optgroup>
+        <optgroup label="Volatility Indices">
+          <option value="R_10">Volatility 10</option>
+          <option value="R_25">Volatility 25</option>
+          <option value="R_50">Volatility 50</option>
+          <option value="R_75">Volatility 75</option>
+          <option value="R_100">Volatility 100</option>
+        </optgroup>
+        <optgroup label="Volatility (1s)">
+          <option value="1HZ10V">Volatility 10 (1s)</option>
+          <option value="1HZ25V">Volatility 25 (1s)</option>
+          <option value="1HZ50V">Volatility 50 (1s)</option>
+          <option value="1HZ75V">Volatility 75 (1s)</option>
+          <option value="1HZ100V">Volatility 100 (1s)</option>
+        </optgroup>
+        <optgroup label="Step">
+          <option value="stpRNG">Step Index</option>
+        </optgroup>
+        <optgroup label="Jump">
+          <option value="JD10">Jump 10</option>
+          <option value="JD25">Jump 25</option>
+          <option value="JD50">Jump 50</option>
+          <option value="JD75">Jump 75</option>
+          <option value="JD100">Jump 100</option>
+        </optgroup>
       </select>
       <div class="session"><span class="dot" id="sessdot"></span><span id="sesstxt">session —</span></div>
       <div class="session"><span class="dot" id="trenddot"></span><span id="trendtxt">Trend Filter: —</span></div>
@@ -238,6 +284,10 @@
       <button data-s="meanrev_grind" id="btnMRGrind" title="Boom/Crash only — same BB(20,2σ)+RSI(2) reversion entries as Mean Reversion, but locked to the instrument's structural grind direction (long-only on Crash, short-only on Boom) instead of both directions. Side-by-side with Mean Reversion, not a replacement. Batch-tested 3 times: Boom 900 positive and reproducible in all 3 runs (promising, but still under the 100-episode bar); Crash 1000 unreliable, don't trust it. Not yet proven enough to trade live.">Grind Pullback (Boom/Crash)</button>
       <button data-s="trend" id="btnTrend" title="Boom/Crash only — Donchian breakout entries locked to the instrument's structural grind direction (short-only on Boom, long-only on Crash), never the spike direction. Batch-tested 3 times across all 14 symbols: negative or inconsistent every time, worst specifically on Crash 600. Real evidence of no edge — avoid for live decisions.">Grind Trend Following (Boom/Crash)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
+      <button data-s="fvg" id="btnFvg" title="Any symbol — BOS/CHoCH structure break + unmitigated 3-bar FVG confluence. Ported from Structure Ledger, where its own numbers were mixed/thin (XAU/USD promising at 20 episodes, EUR/GBP inconsistent) — not yet re-tested here on any symbol.">FVG Confluence</button>
+      <button data-s="sbrrbs" id="btnSbr" title="Any symbol — waits for an actual retest of a broken structure level before building a ticket (slower, retest-confirmed entry). Ported from Structure Ledger, where it tested negative on 3/3 symbols — do not trust live signals until re-tested here.">SBR/RBS Retest</button>
+      <button data-s="ealogic" id="btnEA" title="Any symbol — ported from a validated MQL5 EA (Volatility_SBR_RBS_EA.mq5): sweep below/above a swing level, then reclaim, with independently toggleable FVG/mitigation/H4/D1 confluence rules. H1/H4/D1 fixed, independent of the strip above. Limited data in its strict configuration; loosened configs tested negative.">SBR/RBS (EA Logic)</button>
+      <button data-s="bullet" id="btnBullet" title="Any symbol — the defined ICT concept: three 1-hour NY-time windows (03:00/10:00/14:00, DST-correct), a sweep-and-reclaim with a confirming FVG inside the window. 5m fixed, independent of the strip above. Unverified — minimal results gathered.">Silver Bullet (ICT)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -248,9 +298,22 @@
     </select>
     <button class="tbtn" id="btnBacktest" style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Run Backtest</button>
     <button class="tbtn" id="btnMaxSelectivity" title="Sets Mean Reversion's min regime margin and Grind Trend Following's H4-confirmed TP to their tightest/highest-conviction values. Doesn't change entry logic or stops — only tightens filters that already exist. Whichever strategy tab you're on when you run the backtest is the one that setting affects." style="background:var(--ledger);color:var(--text);border:1px solid var(--line)">Max Selectivity Preset</button>
+    <label id="htfFilterWrap" style="display:none;align-items:center;gap:6px;margin-left:8px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
+      <input type="checkbox" id="htfFilter"> Require H4 trend agreement
+    </label>
     <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--faint)">
       spread cost <input type="number" id="spreadInput" value="0.05" min="0" step="0.01" style="width:52px;background:var(--ledger);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 6px;font-family:var(--mono)"> R/trade
     </span>
+  </div>
+
+  <div class="rulepanel" id="eaConfluenceRow" style="display:none;margin-bottom:12px">
+    <h3 style="margin-bottom:10px">EA Logic — H1 structure, H4/D1 bias (fixed, independent of the timeframe strip above). Confluence rules, each independently toggleable — exactly like the EA:</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--dim)">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="eaFVG" checked> Require FVG straddle</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="eaMIT" checked> Require mitigation block</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="eaHTF" checked> Require H4 bias agreement</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="eaD1" checked> Require D1 non-conflict</label>
+    </div>
   </div>
 
   <details class="btpanel" id="batchPanel" style="margin-bottom:12px">
@@ -329,10 +392,11 @@
   // thin a sample to read with any confidence; it showed "—" almost every
   // time.)
   const WEEK_TF = 604800;
-  // What's actually fetched from Deriv. 60 (1m) stays even though it's not
-  // in the visible strip below — Bounded-Time Fade/Late-Cycle Entry depend
-  // on candlesByTf[60] directly regardless of what the strip shows.
-  const FETCH_TFS = [60,900,3600,14400,86400];
+  // What's actually fetched from Deriv. 60 (1m) and 300 (5m) stay even
+  // though neither is in the visible strip below — Bounded-Time Fade/Late-
+  // Cycle Entry depend on candlesByTf[60] directly, and Silver Bullet (ICT)
+  // depends on candlesByTf[300] directly, regardless of what the strip shows.
+  const FETCH_TFS = [60,300,900,3600,14400,86400];
   // What's shown in the MTF strip and selectable (by clicking a cell) as
   // curTf for Mean Reversion/Grind Pullback.
   const TFS = [900,3600,14400,86400,WEEK_TF];
@@ -1773,6 +1837,304 @@
   renderLog();
   renderLossTracker();
 
+  // ---------- FVG Confluence / SBR-RBS Retest / EA Logic / Silver Bullet ----------
+  // Ported from the sibling Structure Ledger project (mbahi/Structure-ledger).
+  // Unlike the Grind*/Bounded-Time Fade family, these 4 work on ANY symbol —
+  // forex, metals, Volatility indices, Boom/Crash, Step, Jump — not just
+  // Boom/Crash. Reuses findLastSwingHigh/findLastSwingLow/computeTrendBiasEA/
+  // EA_SWING_LB/validateTicket/MIN_RISK_FRACTION, which already exist above
+  // (shared lineage with Mean Reversion's own H4 regime filter) — only the
+  // pieces genuinely specific to these 4 strategies are added here.
+  const MIN_RISK_FRACTION_TIGHT = 0.00015;
+
+  function computeFVGs(c){
+    const fvgs = [];
+    for (let i=2;i<c.length;i++){
+      if (c[i].low > c[i-2].high){
+        fvgs.push({start:i-2, end:i, top:c[i].low, bottom:c[i-2].high, direction:'bull', mitigated:false, mitIndex:null});
+      }
+      if (c[i].high < c[i-2].low){
+        fvgs.push({start:i-2, end:i, top:c[i-2].low, bottom:c[i].high, direction:'bear', mitigated:false, mitIndex:null});
+      }
+    }
+    for (const g of fvgs){
+      for (let j=g.end+1;j<c.length;j++){
+        if (c[j].low <= g.top && c[j].high >= g.bottom){ g.mitigated = true; g.mitIndex = j; break; }
+      }
+    }
+    return fvgs;
+  }
+
+  function nearestOpposing(swings, fromIndex, direction, entry){
+    const want = direction==='bull' ? 'high' : 'low';
+    const candidates = swings.filter(s => s.type===want && s.index>fromIndex &&
+        (direction==='bull' ? s.price > entry : s.price < entry))
+      .sort((a,b)=>a.index-b.index);
+    // Keep only swings a meaningful further step beyond the previous kept
+    // one — two swings close in price but different in time (e.g. a double
+    // top) shouldn't produce a TP1/TP2 that are practically the same level.
+    const MIN_STEP_FRACTION = 0.15;
+    const kept = [];
+    for (const s of candidates){
+      if (!kept.length){ kept.push(s); continue; }
+      const prev = kept[kept.length-1];
+      const prevDist = Math.abs(prev.price - entry);
+      const step = Math.abs(s.price - prev.price);
+      if (step >= prevDist * MIN_STEP_FRACTION) kept.push(s);
+      if (kept.length >= 2) break;
+    }
+    return kept;
+  }
+
+  function findBreakBelow(c, level, swingIdx, maxBars){
+    const ceil = Math.min(c.length-1, swingIdx+maxBars);
+    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].low < level) return i; }
+    return -1;
+  }
+  function findBreakAbove(c, level, swingIdx, maxBars){
+    const ceil = Math.min(c.length-1, swingIdx+maxBars);
+    for (let i=swingIdx+1; i<=ceil; i++){ if (c[i].high > level) return i; }
+    return -1;
+  }
+  function getOrderBlockRange(c, barIdx){
+    return { obLow: Math.min(c[barIdx].open, c[barIdx].close), obHigh: Math.max(c[barIdx].open, c[barIdx].close) };
+  }
+  function detectFVGStraddle(c, b, bullish){
+    if (b-1 < 0 || b+1 >= c.length) return false;
+    return bullish ? (c[b+1].low > c[b-1].high) : (c[b+1].high < c[b-1].low);
+  }
+  function detectMitigationBlock(c, b, bullish){
+    const floor = Math.max(0, b-6);
+    for (let i=b-1; i>=floor; i--){
+      const isRed = c[i].close < c[i].open, isGreen = c[i].close > c[i].open;
+      if (bullish && isRed) return true;
+      if (!bullish && isGreen) return true;
+    }
+    return false;
+  }
+
+  // ---------- SBR/RBS (EA Logic) — ported from Volatility_SBR_RBS_EA.mq5 ----------
+  const EA_MAX_REVERSAL_BARS = 8, EA_TP1_RR = 1.0, EA_TP2_RR = 2.5, EA_SL_POINTS = 20;
+  let lastEADiagnostic = null;
+
+  function buildEALogicTicket(){
+    lastEADiagnostic = null;
+    const c = candlesByTf[3600]; // H1 structure — fixed, per the validated EA design
+    if (!c || c.length < EA_SWING_LB*2+EA_MAX_REVERSAL_BARS+4) return null;
+    const lb = EA_SWING_LB;
+    const decimals = decimalsFor(curSym);
+    const point = Math.pow(10, -decimals);
+    const reqFVG = $('eaFVG').checked, reqMIT = $('eaMIT').checked, reqHTF = $('eaHTF').checked, reqD1 = $('eaD1').checked;
+
+    const swingHighIdx = findLastSwingHigh(c, lb, c.length-1-lb);
+    const swingLowIdx = findLastSwingLow(c, lb, c.length-1-lb);
+    if (swingHighIdx < 0 || swingLowIdx < 0) return null;
+    const swingHigh = c[swingHighIdx].high, swingLow = c[swingLowIdx].low;
+
+    // SBR candidate: sweep below swingLow, then reclaim (last confirmed close back above)
+    const breakBarLow = findBreakBelow(c, swingLow, swingLowIdx, EA_MAX_REVERSAL_BARS);
+    const confirmedClose = c[c.length-2] ? c[c.length-2].close : c[c.length-1].close;
+    let candidate = null;
+    if (breakBarLow > 0 && confirmedClose > swingLow){
+      candidate = tryConfluence(c, true, breakBarLow, swingLow, reqFVG, reqMIT, reqHTF, reqD1, decimals, point, candlesByTf[14400], candlesByTf[86400]);
+    }
+    if (!candidate){
+      const breakBarHigh = findBreakAbove(c, swingHigh, swingHighIdx, EA_MAX_REVERSAL_BARS);
+      if (breakBarHigh > 0 && confirmedClose < swingHigh){
+        candidate = tryConfluence(c, false, breakBarHigh, swingHigh, reqFVG, reqMIT, reqHTF, reqD1, decimals, point, candlesByTf[14400], candlesByTf[86400]);
+      }
+    }
+    // Belt-and-braces: a ticket is only ever returned if every ACTIVE
+    // (checked) confluence rule passed — redundant with tryConfluence's own
+    // logic, but cheap insurance against a future edit accidentally
+    // loosening it.
+    if (candidate && lastEADiagnostic && !lastEADiagnostic.allPassed) return null;
+    return candidate;
+  }
+
+  function tryConfluence(c, bullish, breakBar, structureLevel, reqFVG, reqMIT, reqHTF, reqD1, decimals, point, h4Data, d1Data){
+    const fvgOK = !reqFVG || detectFVGStraddle(c, breakBar, bullish);
+    const mitOK = !reqMIT || detectMitigationBlock(c, breakBar, bullish);
+    let h4OK = true, d1OK = true;
+    if (reqHTF){
+      const htfBias = computeTrendBiasEA(h4Data, EA_SWING_LB);
+      h4OK = bullish ? (htfBias === 1) : (htfBias === -1);
+      if (reqD1){
+        const d1Bias = computeTrendBiasEA(d1Data, EA_SWING_LB);
+        const conflict = bullish ? (d1Bias === -1) : (d1Bias === 1);
+        d1OK = !conflict;
+      }
+    }
+    const allPassed = fvgOK && mitOK && h4OK && d1OK;
+    lastEADiagnostic = {
+      bullish, allPassed,
+      fvg: reqFVG ? (fvgOK?'pass':'FAIL') : 'off',
+      mit: reqMIT ? (mitOK?'pass':'FAIL') : 'off',
+      h4:  reqHTF ? (h4OK?'pass':'FAIL') : 'off',
+      d1:  (reqHTF && reqD1) ? (d1OK?'pass':'FAIL') : 'off'
+    };
+    if (!allPassed) return null;
+
+    const {obLow, obHigh} = getOrderBlockRange(c, breakBar);
+    const entry = bullish ? obHigh : obLow;
+    const sl = bullish ? structureLevel - EA_SL_POINTS*point : structureLevel + EA_SL_POINTS*point;
+    const risk = Math.abs(entry - sl);
+    if (risk <= 0){ lastEADiagnostic.allPassed = false; return null; }
+    const tp1 = bullish ? entry + risk*EA_TP1_RR : entry - risk*EA_TP1_RR;
+    const tp2 = bullish ? entry + risk*EA_TP2_RR : entry - risk*EA_TP2_RR;
+    return validateTicket({
+      dir: bullish ? 'bull' : 'bear', label: bullish ? 'SBR' : 'RBS',
+      entry, sl, tp1, tp2, rr1: EA_TP1_RR, rr2: EA_TP2_RR, decimals,
+      key: `ealogic|${curSym}|${bullish?'bull':'bear'}|${c[breakBar].epoch}`
+    });
+  }
+
+  // ---------- ICT Silver Bullet ----------
+  // Three canonical windows, NY local time, DST-correctly resolved via Intl
+  // (not a fixed UTC offset that would drift wrong half the year) — this
+  // applies to historical bars too, so the backtest checks each 5m bar's
+  // real NY time correctly across DST changes, not an approximation.
+  function getNYTime(epochSeconds){
+    const d = epochSeconds ? new Date(epochSeconds*1000) : new Date();
+    const fmt = new Intl.DateTimeFormat('en-US', {timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false});
+    const parts = fmt.formatToParts(d);
+    return { hour: parseInt(parts.find(p=>p.type==='hour').value,10), minute: parseInt(parts.find(p=>p.type==='minute').value,10) };
+  }
+  function getSilverBulletWindow(epochSeconds){
+    const {hour, minute} = getNYTime(epochSeconds);
+    const mins = hour*60+minute;
+    const windows = [
+      {name:'03:00–04:00 NY', start:180, end:240},
+      {name:'10:00–11:00 NY', start:600, end:660},
+      {name:'14:00–15:00 NY', start:840, end:900}
+    ];
+    for (const w of windows){
+      if (mins >= w.start && mins < w.end) return Object.assign({}, w, {elapsedMin: mins-w.start});
+    }
+    return null;
+  }
+
+  const SB_SWING_LB = 3, SB_SWEEP_MAX_BARS = 6;
+  function buildSilverBulletTicket(c, atEpoch){
+    if (!c || c.length < SB_SWING_LB*2+SB_SWEEP_MAX_BARS+6) return null;
+    const win = getSilverBulletWindow(atEpoch);
+    if (!win) return null;
+    const barsInWindow = Math.min(12, Math.max(1, Math.floor(win.elapsedMin/5)+1));
+    const lb = SB_SWING_LB;
+    const preWindowEnd = c.length-1-barsInWindow;
+    if (preWindowEnd < lb*2) return null;
+
+    const swingHighIdx = findLastSwingHigh(c, lb, preWindowEnd);
+    const swingLowIdx = findLastSwingLow(c, lb, preWindowEnd);
+    if (swingHighIdx < 0 || swingLowIdx < 0) return null;
+    const swingHigh = c[swingHighIdx].high, swingLow = c[swingLowIdx].low;
+    const decimals = decimalsFor(curSym);
+
+    const breakBarLow = findBreakBelow(c, swingLow, Math.max(swingLowIdx, preWindowEnd), SB_SWEEP_MAX_BARS);
+    const breakBarHigh = findBreakAbove(c, swingHigh, Math.max(swingHighIdx, preWindowEnd), SB_SWEEP_MAX_BARS);
+    const confirmedClose = c[c.length-2] ? c[c.length-2].close : c[c.length-1].close;
+
+    let dir=null, breakBar=null, structureLevel=null;
+    if (breakBarLow > 0 && confirmedClose > swingLow){ dir='bull'; breakBar=breakBarLow; structureLevel=swingLow; }
+    else if (breakBarHigh > 0 && confirmedClose < swingHigh){ dir='bear'; breakBar=breakBarHigh; structureLevel=swingHigh; }
+    if (!dir) return null;
+
+    if (!detectFVGStraddle(c, breakBar, dir==='bull')) return null;
+
+    const {obLow, obHigh} = getOrderBlockRange(c, breakBar);
+    const entry = dir==='bull' ? obHigh : obLow;
+    const point = Math.pow(10, -decimals);
+    const sl = dir==='bull' ? structureLevel - 20*point : structureLevel + 20*point;
+    const swingsAll = computeSwings(c);
+    const opposing = nearestOpposing(swingsAll, breakBar, dir, entry);
+    if (!opposing.length) return null;
+    const tp1 = opposing[0].price;
+    const risk = Math.abs(entry-sl);
+    const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*risk : entry - 2*risk);
+    const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
+    const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
+
+    return validateTicket({
+      dir, label:'Silver Bullet', entry, sl, tp1, tp2, rr1, rr2, decimals,
+      key: `bullet|${curSym}|${dir}|${c[breakBar].epoch}`,
+      window: win.name
+    });
+  }
+
+  // ---------- FVG Confluence ----------
+  function buildFVGTicket(c, swings, structure, fvgs, h4Data){
+    if (!structure.events.length) return null;
+    const lastEvent = structure.events[structure.events.length-1];
+    const dir = lastEvent.direction;
+    // Optional HTF alignment filter (htfFilter checkbox): only take the
+    // trade if H4 structure agrees with the trade direction.
+    if (h4Data){
+      const htfBias = computeTrendBiasEA(h4Data, EA_SWING_LB);
+      const htfOK = dir==='bull' ? (htfBias === 1) : (htfBias === -1);
+      if (!htfOK) return null;
+    }
+    const candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= lastEvent.index-6);
+    if (!candidateFvgs.length) return null;
+    const gap = candidateFvgs[candidateFvgs.length-1];
+    const entry = dir==='bull' ? gap.top : gap.bottom;
+    const invalidation = lastEvent.invalidation;
+    if (invalidation == null) return null;
+    const priceScale = c[c.length-1].close;
+    const buffer = priceScale * 0.0006;
+    const sl = dir==='bull' ? invalidation - buffer : invalidation + buffer;
+    const opposing = nearestOpposing(swings, lastEvent.index, dir, entry);
+    if (!opposing.length) return null;
+    const tp1 = opposing[0].price;
+    const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
+    const risk = Math.abs(entry-sl);
+    const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
+    const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
+    const d = decimalsFor(curSym);
+    return validateTicket({dir, label:lastEvent.type, entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+      key: `fvg|${curSym}|${curTf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}`});
+  }
+
+  // ---------- SBR/RBS Retest ----------
+  function buildSBRRBSTicket(c, swings, structure){
+    if (!structure.events.length) return null;
+    const priceScale = c[c.length-1].close;
+    const tol = priceScale * 0.0009;
+    const buffer = priceScale * 0.0006;
+    // Structure events fire often, so requiring the retest to happen while
+    // its event is STILL the single most recent one almost always fails — a
+    // newer event displaces it before price loops back. Check the last
+    // several events (most recent first) for any level that got a genuine,
+    // still-fresh (last 15 bars) retest instead.
+    const EVENTS_TO_CHECK = 20;
+    const candidates = structure.events.slice(-EVENTS_TO_CHECK).reverse();
+    const searchFrom = Math.max(0, c.length-16);
+    for (const ev of candidates){
+      const dir = ev.direction;
+      const level = ev.price;
+      let retestIdx = null, retestCandle = null;
+      for (let j=Math.max(ev.index+1, searchFrom); j<c.length; j++){
+        if (dir==='bull' && c[j].low <= level+tol && c[j].high >= level-tol*3){ retestIdx=j; retestCandle=c[j]; break; }
+        if (dir==='bear' && c[j].high >= level-tol && c[j].low <= level+tol*3){ retestIdx=j; retestCandle=c[j]; break; }
+      }
+      if (retestIdx === null) continue;
+      const entry = level;
+      const sl = dir==='bull' ? Math.min(retestCandle.low, level) - buffer : Math.max(retestCandle.high, level) + buffer;
+      const opposing = nearestOpposing(swings, ev.index, dir, entry);
+      if (!opposing.length) continue;
+      const tp1 = opposing[0].price;
+      const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
+      const risk = Math.abs(entry-sl);
+      const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
+      const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
+      const d = decimalsFor(curSym);
+      const label = dir==='bull' ? 'RBS' : 'SBR';
+      const ticket = validateTicket({dir, label, entry, sl, tp1, tp2, rr1, rr2, decimals:d,
+        key: `sbrrbs|${curSym}|${curTf}|${dir}|${entry.toFixed(d)}`}, MIN_RISK_FRACTION_TIGHT);
+      if (ticket) return ticket;
+    }
+    return null;
+  }
+
   // meanrev/trend reflect the original broad batch-scan result (1H, all 38
   // instruments, thousands of episodes) plus what later, more targeted
   // scans this project ran actually found — a broad scan missing a narrow
@@ -1789,18 +2151,36 @@
     meanrev: {label:'No broad edge (1H)', detail:'2,100+ real episodes across the original 38 instruments, weighted avg ≈ −0.06R — but real, broad-based, cost-adjusted edge found specifically on Crash 600 and Boom 900 (170+ episodes each, +0.05R to +0.16R/episode; verified the edge survives dropping each symbol\'s 5 biggest winners, still +9R to +15R on the rest). Crash 1000 initially looked similar but doesn\'t hold up — traced its entire apparent edge to 5 outlier TIME_STOP trades out of 125; the other 120 net to ~0. Flips between "proven" and "no edge" across different windows/runs because of that, not real instability — treat it as unproven, not as a fourth validated symbol.', cls:'val-thin'},
     meanrev_grind: {label:'Not yet tested', detail:'Side-by-side with Mean Reversion, not a replacement — same BB(20,2σ)+RSI(2) reversion entries, but locked to the instrument\'s structural grind direction (long-only Crash, short-only Boom) instead of both directions. No real evidence gathered yet.', cls:'val-thin'},
     trend:   {label:'Tested negative — avoid for live decisions', detail:'Grind Trend Following was run through Batch Scan 3 separate times across all 14 Boom/Crash symbols. Negative or flip-sign-inconsistent every time, worst specifically on Crash 600 (-0.27R to -0.40R/episode across all 3 runs — the most negative result in the whole dataset). This is real, repeated, broad-based evidence of no edge, not an absence of testing — do not trade this live. The opt-in spike-hazard filter (?spikefilter=1) hasn\'t been evidenced yet and may or may not change this.', cls:'val-thin'},
-    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'}
+    spike_fade: {label:'Real evidence (Boom/Crash)', detail:'10/10 of the original Boom/Crash instruments (300–1000 range), 2,200-3,700 episodes each, +0.56R to +1.12R/episode after 0.05R spread + outlier-capping, consistent split-half, win-size distribution checked (not outlier-dependent) — newer 50/150 variants not yet tested', cls:'val-good'},
+    // Ported from the sibling Structure Ledger project along with their
+    // strategies. That project's own documentation disagreed with itself on
+    // two of these four (a "Read this first" summary panel claimed stronger
+    // results than the validation object actually driving its tickets) —
+    // these four descriptions use the more specific, ticket-facing numbers,
+    // not the broader claim, since the two couldn't be reconciled from here.
+    // None of the four have cleared this app's own 100-episode/split-half
+    // bar yet — treat all of them as unproven until re-tested properly.
+    fvg: {label:'Mixed, thin data', detail:'Ported from Structure Ledger. Its own numbers: XAU/USD promising (20 episodes, +0.29R) but EUR/GBP inconsistent — nowhere near the 100+ episode, split-half-consistent bar this app requires. Not yet re-tested here on any symbol.', cls:'val-thin'},
+    sbrrbs: {label:'Negative edge (as tested)', detail:'Ported from Structure Ledger. Its own numbers: negative on 3/3 symbols tested there (XAU/EUR/GBP) — do not trust live signals until re-tested here with real evidence.', cls:'val-thin'},
+    ealogic: {label:'Limited data', detail:'Ported from Structure Ledger, itself ported from a validated MQL5 EA (Volatility_SBR_RBS_EA.mq5). Its strict (all-rules-on) configuration fires rarely, so a proper sample was never reached there; loosened configurations were tested and came back negative. Not yet re-tested here.', cls:'val-thin'},
+    bullet: {label:'Unverified', detail:'Ported from Structure Ledger. Has a working, DST-correct backtest engine (three NY-time windows: 03:00, 10:00, 14:00) but minimal results were ever gathered there. Treat as completely unverified until real evidence exists.', cls:'val-thin'}
   };
 
   function strategyLabel(){
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
     if (curStrategy==='meanrev_grind') return 'Grind Pullback (Boom/Crash)';
     if (curStrategy==='spike_fade') return 'Bounded-Time Fade (Boom/Crash)';
-    return 'Grind Trend Following (Boom/Crash)';
+    if (curStrategy==='trend') return 'Grind Trend Following (Boom/Crash)';
+    if (curStrategy==='fvg') return 'FVG Confluence';
+    if (curStrategy==='sbrrbs') return 'SBR/RBS Retest';
+    if (curStrategy==='ealogic') return 'SBR/RBS (EA Logic)';
+    return 'Silver Bullet (ICT)';
   }
   function effectiveTfLabel(){
     if (curStrategy==='trend') return 'H1/H4 (fixed)';
     if (curStrategy==='spike_fade') return '1m (fixed)';
+    if (curStrategy==='ealogic') return 'H1, H4/D1-aligned (fixed)';
+    if (curStrategy==='bullet') return '5m, window-gated (fixed)';
     return TF_LABELS[curTf];
   }
 
@@ -1873,9 +2253,21 @@
         else if (s.phase==='insufficient') msg = 'Not enough spikes in the live 1m window yet — need 5+ completed gaps between spikes before the running mean gap is trustworthy.';
         else if (s.phase==='grinding') msg = `[FADE_GRINDING] Last spike ${s.elapsedMin}m ago (mean gap \u2248${s.meanGapMin.toFixed(0)}m). No new entry until the next spike.`;
         else msg = `[FADE_EXIT_ZONE] ${s.elapsedMin}m since the last spike, past the ~${s.exitAtMin.toFixed(0)}m bounded-exit threshold (mean gap \u2248${s.meanGapMin.toFixed(0)}m). Model is flat here — next spike may be close.`;
-      } else {
+      } else if (curStrategy==='trend'){
         if (!spikeDirectionFor(curSym)) msg = 'Grind Trend Following only applies to Boom/Crash symbols — pick one above (e.g. Crash 600, Boom 900). Use the Mean Reversion tab for this symbol instead.';
         else msg = 'Reading H1/H4 — watching for a Donchian(20) breakout on H1 aligned with the H4 trend filter. No setup currently in play.';
+      } else if (curStrategy==='fvg'){
+        msg = 'Reading structure — no BOS/CHoCH + unmitigated FVG confluence yet on this timeframe.';
+      } else if (curStrategy==='sbrrbs'){
+        msg = 'Reading structure — watching for a retest of the last broken level on this timeframe.';
+      } else if (curStrategy==='ealogic'){
+        msg = lastEADiagnostic
+          ? `Sweep-and-reclaim candidate found (${lastEADiagnostic.bullish?'bullish':'bearish'}) but blocked — FVG:${lastEADiagnostic.fvg}  MIT:${lastEADiagnostic.mit}  H4:${lastEADiagnostic.h4}  D1:${lastEADiagnostic.d1}. No entry given while any active rule fails.`
+          : 'Reading H1 structure — no sweep-and-reclaim currently in play (H4/D1 fixed, independent of the strip above).';
+      } else { // bullet
+        msg = getSilverBulletWindow()
+          ? 'Window is open — watching 5m for a sweep-and-reclaim with a confirming FVG. No setup yet this window.'
+          : 'Outside the defined Silver Bullet windows (03:00, 10:00, 14:00 NY) — no setup will be shown until one opens.';
       }
       slot.innerHTML = `<div class="idle-ticket">${msg}</div>`;
       return;
@@ -1968,7 +2360,7 @@
     }
   }
 
-  function renderChart(c, swings, structure){
+  function renderChart(c, swings, structure, fvgs){
     const canvas = $('chart');
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.clientWidth, H = 360;
@@ -1985,6 +2377,20 @@
     const xw = W/visible.length;
     const y = p => H - ( (p-yMin)/(yMax-yMin) )*H;
     const x = i => i*xw + xw/2;
+
+    // fvgs is only passed by FVG Confluence/Silver Bullet — every other
+    // strategy's renderChart call omits it, leaving the chart exactly as it
+    // was before this was added.
+    if (fvgs){
+      for (const g of fvgs){
+        const gs = g.start-offset, ge = g.end-offset;
+        if (ge < 0 || gs > visible.length) continue;
+        const xs = Math.max(0,gs)*xw, xe = Math.min(visible.length,ge+1)*xw;
+        ctx.fillStyle = g.direction==='bull' ? 'rgba(79,168,201,0.14)' : 'rgba(116,141,146,0.14)';
+        ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top));
+        if (g.mitigated){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(xs, y(g.top), xe-xs, y(g.bottom)-y(g.top)); }
+      }
+    }
 
     for (let i=0;i<visible.length;i++){
       const cd = visible[i];
@@ -2040,7 +2446,7 @@
     }
   }
 
-  function renderStrategyStrip(candles, swings, structure){
+  function renderStrategyStrip(candles, swings, structure, fvgs){
     const strip = $('strategystrip');
     // lastMRDiagnostic is overwritten by each buildMeanReversionTicketLive
     // call, so each one's own diagnostic must be captured immediately
@@ -2053,12 +2459,20 @@
     const mrGrindDiag = gdNow ? lastMRDiagnostic : null;
     const trendTicket = gdNow ? buildTrendTicket(candlesByTf[3600], candlesByTf[14400]) : null;
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
+    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs);
+    const sbrTicket = buildSBRRBSTicket(candles, swings, structure);
+    const eaTicket = buildEALogicTicket(); // also refreshes lastEADiagnostic as a side effect
+    const bulletTicket = buildSilverBulletTicket(candlesByTf[300]);
 
     const cells = [
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket, diag:mrDiag},
       {key:'meanrev_grind', label:'Grind Pullback', ticket:mrGrindTicket, diag:mrGrindDiag},
       {key:'trend', label:'Grind Trend Following', ticket:trendTicket},
-      {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult}
+      {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult},
+      {key:'fvg', label:'FVG Confluence', ticket:fvgTicket},
+      {key:'sbrrbs', label:'SBR/RBS Retest', ticket:sbrTicket},
+      {key:'ealogic', label:'EA Logic', ticket:eaTicket},
+      {key:'bullet', label:'Silver Bullet', ticket:bulletTicket}
     ];
     strip.innerHTML = cells.map(cell => {
       let biasLabel = 'idle', biasClass = 'neutral';
@@ -2069,6 +2483,8 @@
         const p = cell.fadeStatus.phase;
         biasLabel = p==='not_applicable' ? 'n/a (not Boom/Crash)' : p==='insufficient' ? 'insufficient data' : p==='grinding' ? 'grinding' : p==='exit_zone' ? 'exit zone' : 'idle';
       }
+      else if (cell.key==='ealogic' && lastEADiagnostic){ biasLabel = 'blocked'; biasClass='neutral'; }
+      else if (cell.key==='bullet' && !getSilverBulletWindow()){ biasLabel = 'window closed'; biasClass='neutral'; }
       return `<div class="mtf-cell ${curStrategy===cell.key?'active':''}" data-strat="${cell.key}" style="cursor:pointer">
         <div class="tf">${cell.label}</div>
         <div class="bias ${biasClass}">${biasLabel}</div>
@@ -2182,6 +2598,19 @@
       const r = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       return r.phase === 'entry' ? r : null;
     }
+    if (strat === 'ealogic') return buildEALogicTicket();
+    if (strat === 'bullet') return buildSilverBulletTicket(candlesByTf[300]);
+    if (strat === 'fvg' || strat === 'sbrrbs'){
+      const c = candlesByTf[tf];
+      if (!c || c.length < 20) return null;
+      const swings = computeSwings(c);
+      const structure = computeStructureEvents(c, swings);
+      if (strat === 'fvg'){
+        const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
+        return buildFVGTicket(c, swings, structure, computeFVGs(c), h4Data);
+      }
+      return buildSBRRBSTicket(c, swings, structure);
+    }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
     if (strat === 'meanrev_grind' && !grindDirFor(curSym)) return null;
@@ -2190,8 +2619,8 @@
 
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
-    const stratLbl = strat==='meanrev'?'Mean Reversion':strat==='meanrev_grind'?'Grind Pullback':strat==='spike_fade'?'Bounded-Time Fade':'Grind Trend Following';
-    const tfLbl = tf ? TF_LABELS[tf] : strat==='spike_fade' ? '1m' : 'H1/H4';
+    const stratLbl = strategyLabelFor(strat);
+    const tfLbl = strat==='ealogic' ? 'H1/H4/D1' : tf ? TF_LABELS[tf] : strat==='spike_fade' ? '1m' : strat==='bullet' ? '5m' : 'H1/H4';
     const body = strat==='spike_fade'
       ? `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nExit by ~${ticket.exitAtMin.toFixed(0)}m (mean gap ≈${ticket.meanGapMin.toFixed(0)}m) — no fixed price target`
       : `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`;
@@ -2209,7 +2638,7 @@
   function checkHTFNotifications(){
     if (!notifyEnabled || Notification.permission !== 'granted') return;
     const strat = curStrategy;
-    const tf = (strat === 'trend' || strat === 'spike_fade') ? null : curTf;
+    const tf = (strat === 'trend' || strat === 'spike_fade' || strat === 'ealogic' || strat === 'bullet') ? null : curTf;
     const ticket = buildTicketForNotify(strat, tf);
     if (!ticket) return;
     const key = tf || 'single';
@@ -2249,7 +2678,8 @@
     const swings = computeSwings(candles);
     const structure = computeStructureEvents(candles, swings);
     const amd = computeAMD(candles);
-    renderStrategyStrip(candles, swings, structure);
+    const fvgs = computeFVGs(candles);
+    renderStrategyStrip(candles, swings, structure, fvgs);
     let ticket;
     if (curStrategy === 'meanrev'){
       ticket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
@@ -2260,11 +2690,20 @@
       const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       lastFadeStatus = fadeResult;
       ticket = fadeResult.phase === 'entry' ? fadeResult : null;
-    } else {
+    } else if (curStrategy === 'trend'){
       ticket = spikeDirectionFor(curSym) ? buildTrendTicket(candlesByTf[3600], candlesByTf[14400]) : null;
+    } else if (curStrategy === 'fvg'){
+      const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
+      ticket = buildFVGTicket(candles, swings, structure, fvgs, h4Data);
+    } else if (curStrategy === 'sbrrbs'){
+      ticket = buildSBRRBSTicket(candles, swings, structure);
+    } else if (curStrategy === 'ealogic'){
+      ticket = buildEALogicTicket();
+    } else { // bullet
+      ticket = buildSilverBulletTicket(candlesByTf[300]);
     }
 
-    renderChart(candles, swings, structure);
+    renderChart(candles, swings, structure, curStrategy==='fvg' ? fvgs : undefined);
     renderAMDStrip(candles, amd);
     renderTicket(ticket);
   }
@@ -2297,6 +2736,156 @@
       if (outcome.result === 'never filled'){ neverFilled++; continue; }
       const labelOverride = outcome.units>1 ? { label: `${ticket.label} (${outcome.units}u)` } : null;
       trades.push(Object.assign({index:i}, ticket, outcome, labelOverride));
+    }
+    lastBacktestNeverFilled = neverFilled;
+    return trades;
+  }
+
+  // ---------- FVG Confluence / SBR-RBS Retest / EA Logic / Silver Bullet backtests ----------
+  // FILL-GATE: t.entry is a resting order (a pullback/retest level), not a
+  // market fill. A ticket only becomes a real trade once price actually
+  // trades through entry — if price runs straight to what would have been
+  // TP without ever coming back for entry, that is NOT a win, it's an order
+  // that was never filled and never existed as a live position. Same-candle
+  // entry+SL touch assumes SL hit first (conservative, matches the same-
+  // candle TP1-vs-SL tie-break every other strategy here already uses).
+  function simulateSmcTrade(hist, startIdx, t){
+    let j = startIdx, filled = false;
+    for (; j<hist.length; j++){
+      const c = hist[j];
+      if (t.dir==='bull' ? (c.low <= t.entry) : (c.high >= t.entry)){ filled = true; break; }
+    }
+    if (!filled) return {result:'never filled', R:0, exitIndex:hist.length-1};
+
+    let hitTP1 = false;
+    for (; j<hist.length; j++){
+      const c = hist[j];
+      if (t.dir==='bull'){
+        if (!hitTP1){
+          if (c.low <= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp1){ hitTP1 = true; continue; }
+        } else {
+          if (c.low <= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.high >= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      } else {
+        if (!hitTP1){
+          if (c.high >= t.sl) return {result:'SL', R:-1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp1){ hitTP1 = true; continue; }
+        } else {
+          if (c.high >= t.entry) return {result:'TP1+BE', R:0.5*t.rr1-spreadCostR, exitIndex:j};
+          if (c.low <= t.tp2) return {result:'TP1+TP2', R:0.5*t.rr1+0.5*t.rr2-spreadCostR, exitIndex:j};
+        }
+      }
+    }
+    return {result:'open', R:0, exitIndex:hist.length-1};
+  }
+
+  function simulateFvgSbrrbsBacktest(hist, strat, h4){
+    const WINDOW = MAXC;
+    let lastKey = null;
+    const trades = [];
+    let neverFilled = 0;
+    let h4ptr = -1;
+    for (let i=30; i<hist.length-1; i++){
+      const windowed = hist.slice(Math.max(0, i-WINDOW+1), i+1);
+      const swings = computeSwings(windowed);
+      const structure = computeStructureEvents(windowed, swings);
+      const fvgs = strat==='fvg' ? computeFVGs(windowed) : null;
+      let h4Slice = null;
+      if (strat==='fvg' && h4){
+        const h1Time = hist[i].epoch;
+        while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
+        h4Slice = h4ptr >= 0 ? h4.slice(Math.max(0, h4ptr-120), h4ptr+1) : null;
+      }
+      const ticket = strat==='fvg' ? buildFVGTicket(windowed, swings, structure, fvgs, h4Slice)
+                                    : buildSBRRBSTicket(windowed, swings, structure);
+      if (!ticket) continue;
+      if (ticket.key === lastKey) continue;
+      lastKey = ticket.key;
+      const outcome = simulateSmcTrade(hist, i+1, ticket);
+      if (outcome.result === 'never filled'){ neverFilled++; continue; }
+      trades.push(Object.assign({index:i}, ticket, outcome));
+    }
+    lastBacktestNeverFilled = neverFilled;
+    return trades;
+  }
+
+  // Aligned H1/H4/D1 walk-forward for EA Logic. At each H1 bar, only H4/D1
+  // candles that had ALREADY FULLY CLOSED by that H1 bar's time are used for
+  // the bias check — the same no-lookahead discipline used throughout this
+  // app (same pattern as simulateBacktest's own h4ptr above).
+  function simulateEABacktest(h1, h4, d1){
+    const WINDOW = MAXC;
+    const decimals = decimalsFor(curSym);
+    const point = Math.pow(10, -decimals);
+    const reqFVG = $('eaFVG').checked, reqMIT = $('eaMIT').checked, reqHTF = $('eaHTF').checked, reqD1 = $('eaD1').checked;
+    const lb = EA_SWING_LB;
+    let lastKey = null;
+    let h4ptr = -1, d1ptr = -1;
+    const trades = [];
+    let neverFilled = 0;
+
+    for (let i=30; i<h1.length-1; i++){
+      const h1Time = h1[i].epoch;
+      while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
+      while (d1ptr+1 < d1.length && d1[d1ptr+1].epoch + 86400 <= h1Time) d1ptr++;
+      if (reqHTF && h4ptr < lb*4) continue;
+      if (reqHTF && reqD1 && d1ptr < lb*4) continue;
+
+      const h1Window = h1.slice(Math.max(0, i-WINDOW+1), i+1);
+      const h4Slice = h4.slice(Math.max(0, h4ptr-120), h4ptr+1);
+      const d1Slice = d1.slice(Math.max(0, d1ptr-120), d1ptr+1);
+      if (h1Window.length < lb*2+EA_MAX_REVERSAL_BARS+4) continue;
+
+      const swingHighIdx = findLastSwingHigh(h1Window, lb, h1Window.length-1-lb);
+      const swingLowIdx = findLastSwingLow(h1Window, lb, h1Window.length-1-lb);
+      if (swingHighIdx < 0 || swingLowIdx < 0) continue;
+      const swingHigh = h1Window[swingHighIdx].high, swingLow = h1Window[swingLowIdx].low;
+      const breakBarLow = findBreakBelow(h1Window, swingLow, swingLowIdx, EA_MAX_REVERSAL_BARS);
+      const confirmedClose = h1Window[h1Window.length-2] ? h1Window[h1Window.length-2].close : h1Window[h1Window.length-1].close;
+
+      let ticket = null;
+      if (breakBarLow > 0 && confirmedClose > swingLow){
+        ticket = tryConfluence(h1Window, true, breakBarLow, swingLow, reqFVG, reqMIT, reqHTF, reqD1, decimals, point, h4Slice, d1Slice);
+      }
+      if (!ticket){
+        const breakBarHigh = findBreakAbove(h1Window, swingHigh, swingHighIdx, EA_MAX_REVERSAL_BARS);
+        if (breakBarHigh > 0 && confirmedClose < swingHigh){
+          ticket = tryConfluence(h1Window, false, breakBarHigh, swingHigh, reqFVG, reqMIT, reqHTF, reqD1, decimals, point, h4Slice, d1Slice);
+        }
+      }
+      if (!ticket) continue;
+      if (ticket.key === lastKey) continue;
+      lastKey = ticket.key;
+      const outcome = simulateSmcTrade(h1, i+1, ticket);
+      if (outcome.result === 'never filled'){ neverFilled++; continue; }
+      trades.push(Object.assign({index:i}, ticket, outcome));
+    }
+    lastBacktestNeverFilled = neverFilled;
+    return trades;
+  }
+
+  // Silver Bullet walk-forward: every 5m bar's own epoch is checked against
+  // NY local time for THAT historical moment (Intl handles DST correctly for
+  // past dates too) — a bar outside one of the three windows is skipped
+  // before any pattern check even runs.
+  function simulateBulletBacktest(c){
+    const WINDOW = 60;
+    let lastKey = null;
+    const trades = [];
+    let neverFilled = 0;
+    for (let i=30; i<c.length-1; i++){
+      const win = getSilverBulletWindow(c[i].epoch);
+      if (!win) continue;
+      const windowed = c.slice(Math.max(0, i-WINDOW+1), i+1);
+      const ticket = buildSilverBulletTicket(windowed, c[i].epoch);
+      if (!ticket) continue;
+      if (ticket.key === lastKey) continue;
+      lastKey = ticket.key;
+      const outcome = simulateSmcTrade(c, i+1, ticket);
+      if (outcome.result === 'never filled'){ neverFilled++; continue; }
+      trades.push(Object.assign({index:i}, ticket, outcome));
     }
     lastBacktestNeverFilled = neverFilled;
     return trades;
@@ -2543,8 +3132,12 @@
       : meta.strat==='meanrev_grind' ? 'Grind_Pullback_BB_RSI2'
       : meta.strat==='trend' ? 'Grind_Trend_Following'
       : meta.strat==='spike_fade' ? 'Bounded_Time_Fade'
-      : meta.strat==='spike_late' ? 'Late_Cycle_Entry' : meta.strat;
-    const tfPart = meta.strat==='trend' ? 'H1H4aligned' : TF_LABELS[meta.tf];
+      : meta.strat==='spike_late' ? 'Late_Cycle_Entry'
+      : meta.strat==='fvg' ? 'FVG_Confluence'
+      : meta.strat==='sbrrbs' ? 'SBR_RBS_Retest'
+      : meta.strat==='ealogic' ? 'SBR_RBS_EA_Logic'
+      : meta.strat==='bullet' ? 'Silver_Bullet_ICT' : meta.strat;
+    const tfPart = meta.strat==='trend' ? 'H1H4aligned' : meta.strat==='ealogic' ? 'H1H4D1' : TF_LABELS[meta.tf];
     const header = ['bar_index','date','direction','label','entry','sl','tp1','tp2','rr1','rr2','result','R'];
     const rows = lastBacktestTrades.map(t => [
       t.index, fmtDate(t.epoch||0), t.dir, t.label, t.entry.toFixed(t.decimals), t.sl.toFixed(t.decimals),
@@ -2717,8 +3310,12 @@
       : meta.strat==='meanrev_grind' ? 'Grind Pullback (Boom/Crash)'
       : meta.strat==='trend' ? 'Grind Trend Following (Boom/Crash)'
       : meta.strat==='spike_fade' ? 'Bounded-Time Fade'
-      : meta.strat==='spike_late' ? 'Late-Cycle Entry' : meta.strat;
-    const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : TF_LABELS[meta.tf];
+      : meta.strat==='spike_late' ? 'Late-Cycle Entry'
+      : meta.strat==='fvg' ? 'FVG Confluence'
+      : meta.strat==='sbrrbs' ? 'SBR/RBS Retest'
+      : meta.strat==='ealogic' ? 'SBR/RBS (EA Logic)'
+      : meta.strat==='bullet' ? 'Silver Bullet (ICT)' : meta.strat;
+    const tfLabel = meta.strat==='trend' ? 'H1, H4-aligned' : meta.strat==='ealogic' ? 'H1/H4/D1' : TF_LABELS[meta.tf];
     const dateRange = hist.length ? `${fmtDate(hist[0].epoch)} → ${fmtDate(hist[hist.length-1].epoch)}` : '';
 
     // equity curve
@@ -2873,9 +3470,36 @@
     if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf)){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
-        const allowedDir = bucket.strat === 'meanrev_grind' ? grindDirFor(bucket.sym) : null;
-        const trades = simulateBacktest(bucket.data, bucket.htf || null, allowedDir);
+        let trades;
+        if (bucket.strat === 'fvg' || bucket.strat === 'sbrrbs'){
+          trades = simulateFvgSbrrbsBacktest(bucket.data, bucket.strat, bucket.htf || null);
+        } else {
+          const allowedDir = bucket.strat === 'meanrev_grind' ? grindDirFor(bucket.sym) : null;
+          trades = simulateBacktest(bucket.data, bucket.htf || null, allowedDir);
+        }
         const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
+        else renderBacktestResults(trades, bucket.data, meta);
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
+    if (bucket.kind === 'ealogic' && bucket.h1 && bucket.h4 && bucket.d1){
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running EA Logic walk-forward across ${bucket.h1.length} H1 bars…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateEABacktest(bucket.h1, bucket.h4, bucket.d1);
+        const meta = {purpose:'backtest', sym:bucket.sym, strat:'ealogic'};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.h1, meta);
+        else renderBacktestResults(trades, bucket.h1, meta);
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
+    if (bucket.kind === 'bullet' && bucket.data){
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running Silver Bullet walk-forward across ${bucket.data.length} 5m bars…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateBulletBacktest(bucket.data);
+        const meta = {purpose:'backtest', sym:bucket.sym, tf:300, strat:'bullet'};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
         else renderBacktestResults(trades, bucket.data, meta);
         delete pendingEABacktest[runId];
@@ -2921,7 +3545,7 @@
     // Weekly only exists as a client-side aggregate of candlesByTf[86400]
     // for the live MTF strip (see deriveWeekly) — Deriv's ticks_history has
     // no such granularity to backtest against directly.
-    if ((strat === 'meanrev' || strat === 'meanrev_grind') && tf === WEEK_TF){
+    if ((strat === 'meanrev' || strat === 'meanrev_grind' || strat === 'fvg' || strat === 'sbrrbs') && tf === WEEK_TF){
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${TF_LABELS[tf]} isn't backtestable yet — it's a live-only view built from Daily data. Pick 15m/1H/4H/D1 to backtest ${strategyLabelFor(strat)}.</div></div>`;
       return null;
     }
@@ -2948,6 +3572,31 @@
       requestHistoryPage(sym, 60, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
       return runId;
     }
+    if (strat === 'ealogic'){
+      // H1 structure + H4/D1 confluence — fixed per the validated EA design,
+      // mirrors the 'trend' kind's two-leg fetch above with a third D1 leg.
+      const depth = Number($('btDepth').value);
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of H1/H4/D1 history for ${symbolLabel(sym)}…</div></div>`;
+      const runId = 'ealogic' + Date.now() + Math.random().toString(36).slice(2,7);
+      pendingEABacktest[runId] = {kind:'ealogic', sym, h1_pages:[], h4_pages:[], d1_pages:[], onComplete};
+      requestHistoryPage(sym, 3600,  5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:depth});
+      requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'h4', pageIndex:0, pagesWanted:depth});
+      const d1Depth = Math.min(60, Math.ceil(depth * (14400 / 86400)) || 1);
+      requestHistoryPage(sym, 86400, 1000, 'latest', {runId, part:'d1', pageIndex:0, pagesWanted:d1Depth});
+      return runId;
+    }
+    if (strat === 'bullet'){
+      // Fixed 5m — Silver Bullet's NY-session windows are only meaningful
+      // at that granularity, same structure as the 'spike' kind above minus
+      // the direction param (Silver Bullet can fire either direction).
+      const rawDepth = Number($('btDepth').value);
+      const depth = Math.min(60, Math.ceil(rawDepth * (3600 / 300)));
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of 5m history for ${symbolLabel(sym)}…</div></div>`;
+      const runId = 'bullet' + Date.now() + Math.random().toString(36).slice(2,7);
+      pendingEABacktest[runId] = {kind:'bullet', sym, data_pages:[], onComplete};
+      requestHistoryPage(sym, 300, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
+      return runId;
+    }
     // btDepth's labels (~7/14/20 months etc.) are calibrated assuming H1 candles.
     // A page of 15m/5m/1m candles covers proportionally less calendar time than
     // a page of H1 candles, so scale the number of pages requested to match the
@@ -2955,7 +3604,8 @@
     // avoid firing an excessive number of requests on 1m.
     const rawDepth = Number($('btDepth').value);
     const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
-    const wantHtf = strat === 'meanrev' || strat === 'meanrev_grind'; // H4 regime filter
+    const wantHtf = strat === 'meanrev' || strat === 'meanrev_grind' // H4 regime filter
+      || (strat === 'fvg' && $('htfFilter') && $('htfFilter').checked);
     if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}…</div></div>`;
     const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
     pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, data_pages:[], onComplete};
@@ -2983,21 +3633,24 @@
   // row here is exactly what a manual run would have shown too.
   function strategyLabelFor(s){
     return s==='meanrev' ? 'Mean Reversion' : s==='meanrev_grind' ? 'Grind Pullback' : s==='trend' ? 'Grind Trend Following'
-      : s==='spike_late' ? 'Late-Cycle Entry' : 'Bounded-Time Fade';
+      : s==='spike_late' ? 'Late-Cycle Entry' : s==='spike_fade' ? 'Bounded-Time Fade'
+      : s==='fvg' ? 'FVG Confluence' : s==='sbrrbs' ? 'SBR/RBS Retest' : s==='ealogic' ? 'SBR/RBS (EA Logic)'
+      : 'Silver Bullet (ICT)';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
-    // All four checked by default: the symbol universe is scoped to just
-    // Boom/Crash right now specifically to run a full sweep across every
-    // strategy, including the Boom/Crash-only spike_late/spike_fade ones
-    // (see spikeDirectionFor) that used to stay opt-in against a much
-    // broader, mostly-non-Boom/Crash symbol list.
-    const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade']];
+    // All eight checked by default. spike_late/spike_fade/trend/meanrev_grind
+    // stay Boom/Crash-only (see spikeDirectionFor) and runBatchScan's
+    // queue-builder skips those combos silently on other symbols; the 4
+    // ported SMC strategies (fvg/sbrrbs/ealogic/bullet) and the symbol
+    // dropdown's Forex/Metals/Volatility/Step/Jump additions run on every
+    // symbol, per their original design.
+    const stratDefs = [['meanrev','Mean Reversion'],['meanrev_grind','Grind Pullback'],['trend','Grind Trend Following'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade'],
+      ['fvg','FVG Confluence'],['sbrrbs','SBR/RBS Retest'],['ealogic','SBR/RBS (EA Logic)'],['bullet','Silver Bullet (ICT)']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
-    // The #symbol dropdown is scoped to Boom 900 and Crash 600 — the two
-    // instruments with real, outlier-robust Mean Reversion evidence — per
-    // direct request. Default-check both.
+    // The #symbol dropdown now spans Boom/Crash, Forex/Metals, Volatility
+    // Indices (+1s), Step and Jump. Default-check all of them.
     $('batchSymChecks').innerHTML = opts.map(o => `<label><input type="checkbox" class="batchSym" value="${o.value}" checked> ${o.textContent}</label>`).join('');
   }
   function renderBatchTable(){
@@ -3071,7 +3724,7 @@
     const row = {
       key: item.key, status:'done', sym: item.sym, strat: item.strat,
       symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat),
-      tfLabel: item.strat==='trend' ? 'H1/H4' : TF_LABELS[item.tf],
+      tfLabel: item.strat==='trend' ? 'H1/H4' : item.strat==='ealogic' ? 'H1/H4/D1' : TF_LABELS[item.tf],
       n, winRate, avgR, episodes: m?m.ne:null, episodeAvg: m?m.episodeAvg:null, verdict,
       winDist: isSpikeStrat ? winDistribution(trades, 3.0) : null
     };
@@ -3116,8 +3769,9 @@
       // this combo too, but batch items always pass an onComplete callback, so
       // its early "return null" without calling onComplete would silently
       // stall the whole batch loop rather than just skipping one row.
-      if ((strat==='meanrev' || strat==='meanrev_grind') && curTf===WEEK_TF) continue;
-      batchQueue.push({sym, strat, tf: isSpike ? 60 : curTf, key: sym+'|'+strat});
+      if ((strat==='meanrev' || strat==='meanrev_grind' || strat==='fvg' || strat==='sbrrbs') && curTf===WEEK_TF) continue;
+      const tf = isSpike ? 60 : strat==='bullet' ? 300 : curTf;
+      batchQueue.push({sym, strat, tf, key: sym+'|'+strat});
     }
     batchResults = [];
     batchStopRequested = false;
@@ -3149,10 +3803,21 @@
   });
   $('btnTrend').addEventListener('click', () => { setStrategy('trend'); });
   $('btnFade').addEventListener('click', () => { setStrategy('spike_fade'); });
+  $('btnFvg').addEventListener('click', () => { setStrategy('fvg'); });
+  $('btnSbr').addEventListener('click', () => { setStrategy('sbrrbs'); });
+  $('btnEA').addEventListener('click', () => { setStrategy('ealogic'); });
+  $('btnBullet').addEventListener('click', () => { setStrategy('bullet'); });
+  ['eaFVG','eaMIT','eaHTF','eaD1'].forEach(id => $(id).addEventListener('change', renderAll));
+  $('htfFilter').addEventListener('change', renderAll);
+
+  const STRATEGY_BUTTON_MAP = [['btnMR','meanrev'],['btnMRGrind','meanrev_grind'],['btnTrend','trend'],['btnFade','spike_fade'],
+    ['btnFvg','fvg'],['btnSbr','sbrrbs'],['btnEA','ealogic'],['btnBullet','bullet']];
 
   function setStrategy(s){
     curStrategy = s;
-    [['btnMR','meanrev'],['btnMRGrind','meanrev_grind'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    STRATEGY_BUTTON_MAP.forEach(([bid,val]) => $(bid).classList.toggle('active', val===s));
+    $('eaConfluenceRow').style.display = (s==='ealogic') ? 'block' : 'none';
+    $('htfFilterWrap').style.display = (s==='fvg') ? 'inline-flex' : 'none';
     $('backtestslot').innerHTML = '';
     disclosedKey = null;
     savePrefs();
@@ -3174,9 +3839,11 @@
     if (typeof p.tf === 'number' && TFS.includes(p.tf)) curTf = p.tf;
     if (typeof p.risk === 'number') riskAmountInput = p.risk;
     if (typeof p.spread === 'number'){ spreadCostR = p.spread; $('spreadInput').value = p.spread; }
-    const strategy = ['meanrev','meanrev_grind','trend','spike_fade'].includes(p.strategy) ? p.strategy : 'meanrev';
+    const strategy = STRATEGY_BUTTON_MAP.some(([,val]) => val===p.strategy) ? p.strategy : 'meanrev';
     curStrategy = strategy;
-    [['btnMR','meanrev'],['btnMRGrind','meanrev_grind'],['btnTrend','trend'],['btnFade','spike_fade']].forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
+    STRATEGY_BUTTON_MAP.forEach(([bid,val]) => $(bid).classList.toggle('active', val===strategy));
+    $('eaConfluenceRow').style.display = (strategy==='ealogic') ? 'block' : 'none';
+    $('htfFilterWrap').style.display = (strategy==='fvg') ? 'inline-flex' : 'none';
   })();
 
   updateSession();
