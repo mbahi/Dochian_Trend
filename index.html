@@ -281,7 +281,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
-      <button data-s="fvg" id="btnFvg" title="Any symbol — BOS/CHoCH structure break + unmitigated 3-bar FVG confluence. Ported from Structure Ledger, where its own numbers were mixed/thin (XAU/USD promising at 20 episodes, EUR/GBP inconsistent) — not yet re-tested here on any symbol.">FVG Confluence</button>
+      <button data-s="fvg" id="btnFvg" title="Any symbol — requires a valid, unmitigated Daily FVG in the trade direction first (the top-down anchor), then a smaller-timeframe FVG nested inside it, backed by an order-block/breaker candle; entry sits at the gap's 50% level on larger gaps. Redesigned per the TTRADES FVG-entry lesson — no evidence gathered on this exact version yet, and expect far fewer signals than the original looser version.">FVG Confluence</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -1666,8 +1666,54 @@
     return kept;
   }
 
+  // How many Daily bars back an unmitigated Daily FVG can be and still count
+  // as the "fresh" top-down anchor — roughly 2-3 months, long enough that a
+  // real daily imbalance stays relevant, short enough to not anchor off a
+  // gap the market has long since moved on from.
+  const DAILY_FVG_LOOKBACK_BARS = 60;
+  // Below this, a gap is already tight enough that requiring a 50%
+  // retracement first (see the ".5 fib" entry below) would just miss valid
+  // signals for no real risk benefit — it only kicks in on larger gaps.
+  const FVG_LARGE_GAP_FRACTION = 0.001;
+
+  // Per the TTRADES "Improve Your Trade Entries Within FVGs" lesson: a valid,
+  // unmitigated Daily FVG in the trade direction is "where everything
+  // starts" — the top-down zone every lower-timeframe entry has to sit
+  // inside. No qualifying Daily FVG, no trade.
+  function findDailyFvgAnchor(dailyData, dir){
+    if (!dailyData || dailyData.length < 10) return null;
+    const dailyFvgs = computeFVGs(dailyData);
+    const recentCutoff = dailyData.length - DAILY_FVG_LOOKBACK_BARS;
+    const candidates = dailyFvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= recentCutoff);
+    if (!candidates.length) return null;
+    return candidates[candidates.length-1];
+  }
+
+  // Simple order-block/breaker proxy: the last opposite-colored candle
+  // shortly before the gap's own impulse move — the same "mitigation block"
+  // check this app's since-removed EA Logic strategy used for the identical
+  // concept, reused here as the FVG's required order-block confluence.
+  function hasOrderBlockConfluence(c, gapStartIdx, bullish){
+    const floor = Math.max(0, gapStartIdx - 6);
+    for (let i = gapStartIdx - 1; i >= floor; i--){
+      const isRed = c[i].close < c[i].open, isGreen = c[i].close > c[i].open;
+      if (bullish && isRed) return true;
+      if (!bullish && isGreen) return true;
+    }
+    return false;
+  }
+
   // ---------- FVG Confluence ----------
-  function buildFVGTicket(c, swings, structure, fvgs, h4Data){
+  // Top-down: a valid Daily FVG anchors the trade direction and zone
+  // (findDailyFvgAnchor); the actual entry trigger is a smaller-timeframe
+  // FVG NESTED inside that Daily zone, not just "the most recent FVG on
+  // this timeframe"; that nested FVG needs order-block/breaker backing
+  // (hasOrderBlockConfluence); and on a large gap, entry sits at its 50%
+  // level (a ".5 fib") rather than the near edge, for a deeper, better-
+  // defined, lower-risk fill. Only applied when tf is intraday (< Daily) —
+  // on a Daily/Weekly tf the "nested inside Daily" relationship is
+  // degenerate, so this falls back to the plain single-timeframe read.
+  function buildFVGTicket(c, swings, structure, fvgs, tf, h4Data, dailyData){
     if (!structure.events.length) return null;
     const lastEvent = structure.events[structure.events.length-1];
     const dir = lastEvent.direction;
@@ -1678,13 +1724,31 @@
       const htfOK = dir==='bull' ? (htfBias === 1) : (htfBias === -1);
       if (!htfOK) return null;
     }
-    const candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= lastEvent.index-6);
+
+    const useDailyAnchor = !!dailyData && tf < 86400;
+    let dailyAnchor = null;
+    if (useDailyAnchor){
+      dailyAnchor = findDailyFvgAnchor(dailyData, dir);
+      if (!dailyAnchor) return null; // no valid Daily FVG — nothing to trade, per the lesson
+    }
+
+    let candidateFvgs = fvgs.filter(g => g.direction===dir && !g.mitigated && g.end >= lastEvent.index-6);
+    if (dailyAnchor){
+      // Nested smaller-timeframe imbalance inside the larger Daily one.
+      candidateFvgs = candidateFvgs.filter(g => g.top <= dailyAnchor.top && g.bottom >= dailyAnchor.bottom);
+    }
     if (!candidateFvgs.length) return null;
     const gap = candidateFvgs[candidateFvgs.length-1];
-    const entry = dir==='bull' ? gap.top : gap.bottom;
+
+    if (!hasOrderBlockConfluence(c, gap.start, dir==='bull')) return null;
+
+    const priceScale = c[c.length-1].close;
+    const gapSize = gap.top - gap.bottom;
+    const useFib = (gapSize / priceScale) >= FVG_LARGE_GAP_FRACTION;
+    const entry = useFib ? (gap.top + gap.bottom) / 2 : (dir==='bull' ? gap.top : gap.bottom);
+
     const invalidation = lastEvent.invalidation;
     if (invalidation == null) return null;
-    const priceScale = c[c.length-1].close;
     const buffer = priceScale * 0.0006;
     const sl = dir==='bull' ? invalidation - buffer : invalidation + buffer;
     const opposing = nearestOpposing(swings, lastEvent.index, dir, entry);
@@ -1696,7 +1760,7 @@
     const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
     const d = decimalsFor(curSym);
     return validateTicket({dir, label:lastEvent.type, entry, sl, tp1, tp2, rr1, rr2, decimals:d,
-      key: `fvg|${curSym}|${curTf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}`});
+      key: `fvg|${curSym}|${tf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}`});
   }
 
   // meanrev/trend reflect the original broad batch-scan result (1H, all 38
@@ -1721,7 +1785,7 @@
     // uses the more specific, ticket-facing numbers, not the broader claim.
     // Hasn't cleared this app's own 100-episode/split-half bar yet — treat
     // it as unproven until re-tested properly.
-    fvg: {label:'Mixed, thin data', detail:'Ported from Structure Ledger. Its own numbers: XAU/USD promising (20 episodes, +0.29R) but EUR/GBP inconsistent — nowhere near the 100+ episode, split-half-consistent bar this app requires. Not yet re-tested here on any symbol.', cls:'val-thin'}
+    fvg: {label:'Redesigned, unproven', detail:'Originally ported from Structure Ledger (own numbers: XAU/USD promising at 20 episodes, +0.29R; EUR/GBP inconsistent). Since rebuilt around a Daily-FVG-anchored, order-block-confirmed, nested-timeframe entry (per the TTRADES "Improve Your Trade Entries Within FVGs" lesson) — this is a different, stricter signal than what those original numbers measured. No real evidence gathered on this version yet; expect far fewer, more selective signals than before.', cls:'val-thin'}
   };
 
   function strategyLabel(){
@@ -1985,7 +2049,7 @@
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     const mrDiag = lastMRDiagnostic;
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
-    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs);
+    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs, curTf, undefined, candlesByTf[86400]);
 
     const cells = [
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket, diag:mrDiag},
@@ -2097,7 +2161,7 @@
       const swings = computeSwings(c);
       const structure = computeStructureEvents(c, swings);
       const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
-      return buildFVGTicket(c, swings, structure, computeFVGs(c), h4Data);
+      return buildFVGTicket(c, swings, structure, computeFVGs(c), tf, h4Data, candlesByTf[86400]);
     }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
@@ -2175,7 +2239,7 @@
       ticket = fadeResult.phase === 'entry' ? fadeResult : null;
     } else { // fvg
       const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
-      ticket = buildFVGTicket(candles, swings, structure, fvgs, h4Data);
+      ticket = buildFVGTicket(candles, swings, structure, fvgs, curTf, h4Data, candlesByTf[86400]);
     }
 
     renderChart(candles, swings, structure, curStrategy==='fvg' ? fvgs : undefined);
@@ -2254,24 +2318,29 @@
     return {result:'open', R:0, exitIndex:hist.length-1};
   }
 
-  function simulateFvgBacktest(hist, h4){
+  function simulateFvgBacktest(hist, tf, h4, daily){
     const WINDOW = MAXC;
     let lastKey = null;
     const trades = [];
     let neverFilled = 0;
-    let h4ptr = -1;
+    let h4ptr = -1, dailyPtr = -1;
     for (let i=30; i<hist.length-1; i++){
       const windowed = hist.slice(Math.max(0, i-WINDOW+1), i+1);
       const swings = computeSwings(windowed);
       const structure = computeStructureEvents(windowed, swings);
       const fvgs = computeFVGs(windowed);
+      const barTime = hist[i].epoch;
       let h4Slice = null;
       if (h4){
-        const h1Time = hist[i].epoch;
-        while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= h1Time) h4ptr++;
+        while (h4ptr+1 < h4.length && h4[h4ptr+1].epoch + 14400 <= barTime) h4ptr++;
         h4Slice = h4ptr >= 0 ? h4.slice(Math.max(0, h4ptr-120), h4ptr+1) : null;
       }
-      const ticket = buildFVGTicket(windowed, swings, structure, fvgs, h4Slice);
+      let dailySlice = null;
+      if (daily && tf < 86400){
+        while (dailyPtr+1 < daily.length && daily[dailyPtr+1].epoch + 86400 <= barTime) dailyPtr++;
+        dailySlice = dailyPtr >= 0 ? daily.slice(Math.max(0, dailyPtr-120), dailyPtr+1) : null;
+      }
+      const ticket = buildFVGTicket(windowed, swings, structure, fvgs, tf, h4Slice, dailySlice);
       if (!ticket) continue;
       if (ticket.key === lastKey) continue;
       lastKey = ticket.key;
@@ -2586,11 +2655,11 @@
     // is identical either way, so a batch run can never silently compute
     // something different from what "Run Backtest" would show for the same
     // symbol/strategy/timeframe.
-    if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf)){
+    if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf) && (!bucket.wantDaily || bucket.daily)){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
         const trades = bucket.strat === 'fvg'
-          ? simulateFvgBacktest(bucket.data, bucket.htf || null)
+          ? simulateFvgBacktest(bucket.data, bucket.tf, bucket.htf || null, bucket.daily || null)
           : simulateBacktest(bucket.data, bucket.htf || null, null);
         const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
@@ -2665,14 +2734,25 @@
     const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
     const wantHtf = strat === 'meanrev' // H4 regime filter
       || (strat === 'fvg' && $('htfFilter') && $('htfFilter').checked);
-    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}…</div></div>`;
+    // FVG Confluence's Daily anchor (see buildFVGTicket) is core to the
+    // strategy now, not an opt-in checkbox like the H4 filter above — fetch
+    // it whenever backtesting FVG on an intraday tf. On a Daily/Weekly tf
+    // the anchor relationship is degenerate (buildFVGTicket skips it via
+    // its own tf<86400 gate), so there's nothing to fetch.
+    const wantDaily = strat === 'fvg' && tf < 86400;
+    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}${wantDaily?' (plus Daily for the FVG anchor)':''}…</div></div>`;
     const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
-    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, data_pages:[], onComplete};
+    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, wantDaily, data_pages:[], onComplete};
     requestHistoryPage(sym, tf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
     if (wantHtf){
       pendingEABacktest[runId].htf_pages = [];
       const htfDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 14400)) || 1);
       requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
+    }
+    if (wantDaily){
+      pendingEABacktest[runId].daily_pages = [];
+      const dailyDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 86400)) || 1);
+      requestHistoryPage(sym, 86400, 1000, 'latest', {runId, part:'daily', pageIndex:0, pagesWanted:dailyDepth});
     }
     return runId;
   }
