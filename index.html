@@ -282,6 +282,7 @@
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
       <button data-s="fvg" id="btnFvg" title="Any symbol — requires a valid, unmitigated Daily FVG in the trade direction first (the top-down anchor), then a smaller-timeframe FVG nested inside it, backed by an order-block/breaker candle; entry sits at the gap's 50% level on larger gaps. Redesigned per the TTRADES FVG-entry lesson — no evidence gathered on this exact version yet, and expect far fewer signals than the original looser version.">FVG Confluence</button>
+      <button data-s="tdsfc" id="btnTDSFC" title="Any symbol — fixed D1→H4→H1→M15 cascade, independent of the timeframe strip above: D1 bias, H4 unmitigated zone from a displacement break, H1 liquidity sweep + CHoCH on a displacement candle, M15 FVG entry, R≥2. Ported from Structure Ledger's TD-SFC tab — live checklist/ticket only, not backtested in this app yet.">TD-SFC (Sweep→CHoCH→FVG)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -1763,6 +1764,317 @@
       key: `fvg|${curSym}|${tf}|${dir}|${lastEvent.type}|${entry.toFixed(d)}`});
   }
 
+  // ---------- TD-SFC: Top-Down Sweep -> CHoCH -> FVG ----------
+  // Ported from the sibling Structure Ledger project, where this setup lives
+  // as its own tab with its own mechanical rule-by-rule checklist. D1 gives
+  // bias, H4 gives the zone, H1 confirms with a liquidity sweep + CHoCH, M15
+  // gives the FVG entry — see STRATEGY_VALIDATION.tdsfc. Every term below is
+  // a literal, testable rule so two signals with the same label are
+  // genuinely the same setup.
+  //
+  // D1 bias and H4 zone are NOT hard gates on whether a ticket gets built —
+  // the mechanical H1 sweep -> CHoCH -> M15 FVG -> R chain is what actually
+  // triggers a ticket, in whichever direction it fires. D1/H4 are evaluated
+  // independently in that same direction and drive the GATE tag shown in the
+  // idle message (gate ON = both agree) purely as an informational split —
+  // this app has no trade log to split stats by, unlike Structure Ledger's.
+
+  // Spec defaults, unchanged from the Structure Ledger port.
+  let TD_SWING_N = 2;           // fractal lookback, N candles either side
+  let TD_DISP_MULT = 1.5;       // displacement body >= mult x ATR(14)
+  let TD_SWEEP_WINDOW = 3;      // sweep must occur within this many H1 bars of the swing
+  let TD_CHOCH_WINDOW = 10;     // CHoCH must occur within this many H1 bars of the sweep
+  let TD_FVG_ENTRY_MODE = '50'; // 'edge' | '50' | '70' — how deep into the FVG the limit sits
+  let TD_SL_ATR_MULT = 0.1;     // stop = swept level -/+ mult x ATR(14) on M15
+  let TD_MIN_R = 2;             // skip the setup if planned R falls short of this
+  let TD_INVALIDATION_BARS = 20; // cancel if this many M15 bars pass with no fill
+
+  function computeATR(c, idx, period){
+    if (idx < period) return null;
+    let sum = 0;
+    for (let i=idx-period+1; i<=idx; i++){
+      const prevClose = i>0 ? c[i-1].close : c[i].open;
+      const tr = Math.max(c[i].high-c[i].low, Math.abs(c[i].high-prevClose), Math.abs(c[i].low-prevClose));
+      sum += tr;
+    }
+    return sum/period;
+  }
+  // ATR is measured on the PRIOR 14 bars (idx-1 back), not including the
+  // candle being judged — otherwise a huge candle would inflate its own
+  // threshold and could never fail to qualify as displacement.
+  function isDisplacementCandle(c, idx, mult, bullish){
+    if (idx < 1) return false;
+    const atr = computeATR(c, idx-1, 14);
+    if (!atr) return false;
+    const body = c[idx].close - c[idx].open;
+    return bullish ? (body >= mult*atr && c[idx].close > c[idx].open)
+                   : ((-body) >= mult*atr && c[idx].close < c[idx].open);
+  }
+  // Identical to computeSwings above except N is a setting rather than the
+  // hardcoded 2 every other strategy here uses.
+  function computeSwingsTD(c, n){
+    const swings = [];
+    for (let i=n; i<c.length-n; i++){
+      let isHigh = true, isLow = true;
+      for (let k=1;k<=n;k++){
+        if (c[i].high <= c[i-k].high || c[i].high <= c[i+k].high) isHigh = false;
+        if (c[i].low  >= c[i-k].low  || c[i].low  >= c[i+k].low ) isLow  = false;
+      }
+      if (isHigh) swings.push({index:i, type:'high', price:c[i].high});
+      if (isLow)  swings.push({index:i, type:'low',  price:c[i].low});
+    }
+    return swings;
+  }
+  // "The last bearish candle (body to wick)" before the displacement leg
+  // that broke H4 structure up — zone = that candle's full high/low range.
+  // ASSUMPTION: the zone candle is searched up to 10 H4 bars back from the
+  // break — the spec doesn't bound this, and an unbounded search would
+  // eventually find some bearish candle arbitrarily far away.
+  const TD_ZONE_SEARCH_BARS = 10;
+  function findH4ZoneBull(h4){
+    const swings = computeSwingsTD(h4, TD_SWING_N);
+    const structure = computeStructureEvents(h4, swings);
+    const bullEvents = structure.events.filter(e => e.direction==='bull');
+    if (!bullEvents.length) return null;
+    const ev = bullEvents[bullEvents.length-1];
+    if (!isDisplacementCandle(h4, ev.index, TD_DISP_MULT, true)) return null;
+    let zoneIdx = -1;
+    for (let i=ev.index-1; i>=Math.max(0, ev.index-TD_ZONE_SEARCH_BARS); i--){
+      if (h4[i].close < h4[i].open){ zoneIdx = i; break; }
+    }
+    if (zoneIdx < 0) return null;
+    const zoneHigh = h4[zoneIdx].high, zoneLow = h4[zoneIdx].low;
+    for (let i=zoneIdx+1; i<h4.length; i++){ if (h4[i].close < zoneLow) return null; } // mitigated
+    const last = h4[h4.length-1];
+    const touching = last.low <= zoneHigh && last.high >= zoneLow;
+    return { zoneIdx, zoneHigh, zoneLow, eventIdx: ev.index, touching };
+  }
+  function findH4ZoneBear(h4){
+    const swings = computeSwingsTD(h4, TD_SWING_N);
+    const structure = computeStructureEvents(h4, swings);
+    const bearEvents = structure.events.filter(e => e.direction==='bear');
+    if (!bearEvents.length) return null;
+    const ev = bearEvents[bearEvents.length-1];
+    if (!isDisplacementCandle(h4, ev.index, TD_DISP_MULT, false)) return null;
+    let zoneIdx = -1;
+    for (let i=ev.index-1; i>=Math.max(0, ev.index-TD_ZONE_SEARCH_BARS); i--){
+      if (h4[i].close > h4[i].open){ zoneIdx = i; break; }
+    }
+    if (zoneIdx < 0) return null;
+    const zoneHigh = h4[zoneIdx].high, zoneLow = h4[zoneIdx].low;
+    for (let i=zoneIdx+1; i<h4.length; i++){ if (h4[i].close > zoneHigh) return null; } // mitigated
+    const last = h4[h4.length-1];
+    const touching = last.low <= zoneHigh && last.high >= zoneLow;
+    return { zoneIdx, zoneHigh, zoneLow, eventIdx: ev.index, touching };
+  }
+  // A genuine sweep wick is itself a local extreme, so once enough bars
+  // exist after it, it would qualify as an even-newer "confirmed swing low"
+  // than the level it swept. Scanning backward from the most recent bar and,
+  // for EACH candidate i, asking for the swing most recently confirmed
+  // BEFORE i (findLastSwingLow with beforeIndex=i-1) sidesteps that — a
+  // candle is never compared against a swing that is itself or later.
+  const TD_SWEEP_RECENCY_BARS = 20;
+  function findH1SweepBull(h1){
+    const lb = TD_SWING_N;
+    const floor = Math.max(lb+1, h1.length-1-TD_SWEEP_RECENCY_BARS);
+    for (let i=h1.length-1; i>=floor; i--){
+      const swingIdx = findLastSwingLow(h1, lb, i-1);
+      if (swingIdx < 0 || i-swingIdx > TD_SWEEP_WINDOW) continue;
+      const level = h1[swingIdx].low;
+      if (h1[i].low < level && h1[i].close > level) return { sweepIdx:i, sweptLevel:level, swingIdx };
+    }
+    return null;
+  }
+  function findH1SweepBear(h1){
+    const lb = TD_SWING_N;
+    const floor = Math.max(lb+1, h1.length-1-TD_SWEEP_RECENCY_BARS);
+    for (let i=h1.length-1; i>=floor; i--){
+      const swingIdx = findLastSwingHigh(h1, lb, i-1);
+      if (swingIdx < 0 || i-swingIdx > TD_SWEEP_WINDOW) continue;
+      const level = h1[swingIdx].high;
+      if (h1[i].high > level && h1[i].close < level) return { sweepIdx:i, sweptLevel:level, swingIdx };
+    }
+    return null;
+  }
+  // The "last confirmed lower-high [bull] / higher-low [bear] that preceded
+  // the sweep" — same bounded lookup, searched only up to the bar just
+  // before the sweep, so it can never pick the sweep/CHoCH candles themselves.
+  function findH1ChochBull(h1, sweepIdx){
+    const lb = TD_SWING_N;
+    const hIdx = findLastSwingHigh(h1, lb, sweepIdx-1);
+    if (hIdx < 0) return null;
+    const level = h1[hIdx].high;
+    const ceil = Math.min(h1.length-1, sweepIdx+TD_CHOCH_WINDOW);
+    for (let i=sweepIdx+1; i<=ceil; i++){
+      if (h1[i].close > level && isDisplacementCandle(h1, i, TD_DISP_MULT, true)) return { chochIdx:i, brokenLevel:level };
+    }
+    return null;
+  }
+  function findH1ChochBear(h1, sweepIdx){
+    const lb = TD_SWING_N;
+    const lIdx = findLastSwingLow(h1, lb, sweepIdx-1);
+    if (lIdx < 0) return null;
+    const level = h1[lIdx].low;
+    const ceil = Math.min(h1.length-1, sweepIdx+TD_CHOCH_WINDOW);
+    for (let i=sweepIdx+1; i<=ceil; i++){
+      if (h1[i].close < level && isDisplacementCandle(h1, i, TD_DISP_MULT, false)) return { chochIdx:i, brokenLevel:level };
+    }
+    return null;
+  }
+  // computeFVGs already defines exactly "candle1.high < candle3.low,
+  // gap=[candle1.high,candle3.low]" with mitigation tracking. This adds the
+  // two conditions specific to TD-SFC: candle2 must be the displacement
+  // candle, and the gap's confirming candle must close at or after the H1
+  // CHoCH bar's own close — genuinely formed AFTER the CHoCH.
+  function findM15FVG(m15, dir, chochEpoch){
+    const fvgs = computeFVGs(m15);
+    const bullish = dir==='bull';
+    const candidates = fvgs.filter(g => g.direction===dir && !g.mitigated
+      && m15[g.end].epoch >= chochEpoch + 3600
+      && isDisplacementCandle(m15, g.start+1, TD_DISP_MULT, bullish));
+    if (!candidates.length) return null;
+    return candidates[candidates.length-1];
+  }
+  // pct = how far into the gap (from its near edge) the limit sits. 'edge' =
+  // 0 (same near-edge convention buildFVGTicket uses), '50'/'70' = that
+  // fraction of the gap's full height retraced.
+  function computeTDEntry(fvg, dir){
+    const pct = TD_FVG_ENTRY_MODE==='70' ? 0.7 : TD_FVG_ENTRY_MODE==='50' ? 0.5 : 0;
+    const height = fvg.top - fvg.bottom;
+    return dir==='bull' ? fvg.top - pct*height : fvg.bottom + pct*height;
+  }
+  // "Nearest prior H1 swing high/low above/below entry" — nearest BY PRICE
+  // among already-confirmed H1 swings. Kept to 2 targets (same min-step
+  // de-duplication nearestOpposing above already uses) so this ticket can
+  // use the same TP1/TP2 shape every other strategy here already produces.
+  function findLiquidityTargets(swings, dir, entry){
+    const want = dir==='bull' ? 'high' : 'low';
+    const candidates = swings.filter(s => s.type===want && (dir==='bull' ? s.price>entry : s.price<entry))
+      .sort((a,b) => dir==='bull' ? a.price-b.price : b.price-a.price);
+    const MIN_STEP_FRACTION = 0.15;
+    const kept = [];
+    for (const s of candidates){
+      if (!kept.length){ kept.push(s); continue; }
+      const prev = kept[kept.length-1];
+      const prevDist = Math.abs(prev.price - entry);
+      const step = Math.abs(s.price - prev.price);
+      if (step >= prevDist * MIN_STEP_FRACTION) kept.push(s);
+      if (kept.length >= 2) break;
+    }
+    return kept;
+  }
+  // "20 M15 candles pass without fill" is measured from the FVG's own
+  // confirming candle — the earliest moment the entry level existed to be
+  // filled against.
+  function checkTDInvalidation(m15, dir, sweep, fvg, entry){
+    for (let i=fvg.end+1; i<m15.length; i++){
+      const c = m15[i];
+      const filled = dir==='bull' ? c.low <= entry : c.high >= entry;
+      if (filled) return null; // filled — no longer a pending setup, invalidation no longer applies
+      const sweptBreach = dir==='bull' ? c.close < sweep.sweptLevel : c.close > sweep.sweptLevel;
+      if (sweptBreach) return `closed back through the swept level (${sweep.sweptLevel}) before fill`;
+    }
+    if (fvg.mitigated) return 'FVG fully closed through before fill';
+    const barsSince = (m15.length-1) - fvg.end;
+    if (barsSince >= TD_INVALIDATION_BARS) return `${barsSince} M15 candles passed with no fill (limit ${TD_INVALIDATION_BARS})`;
+    return null;
+  }
+  // Runs the full rule chain for one direction. Returns the checklist
+  // (Pass/Fail/N/A per step), the overall status, the ticket (if any), and
+  // the GATE tag — D1 bias and H4 zone are evaluated here but do NOT block
+  // the ticket; see the section header above for why.
+  function buildTDSFCCandidate(dir){
+    const d1 = candlesByTf[86400], h4 = candlesByTf[14400], h1 = candlesByTf[3600], m15 = candlesByTf[900];
+    const steps = [];
+    const bullish = dir==='bull';
+
+    const d1Bias = (d1 && d1.length) ? computeTrendBiasEA(d1, TD_SWING_N) : 0;
+    const d1Pass = bullish ? d1Bias===1 : d1Bias===-1;
+    steps.push({name:'D1 bias', status: d1Pass?'Pass':'Fail',
+      detail: d1Pass ? `D1 ${bullish?'HH+HL':'LH+LL'} confirmed` : `D1 bias reads ${d1Bias===1?'bullish':d1Bias===-1?'bearish':'neutral'} — does not confirm ${bullish?'bullish':'bearish'}`});
+
+    const zone = (h4 && h4.length) ? (bullish ? findH4ZoneBull(h4) : findH4ZoneBear(h4)) : null;
+    const h4Pass = !!(zone && zone.touching);
+    steps.push({name:'H4 zone', status: zone ? (h4Pass?'Pass':'Fail') : 'N/A',
+      detail: zone ? `zone [${zone.zoneLow}, ${zone.zoneHigh}]${zone.touching?' — price inside/touching':' — unmitigated but price has not returned'}` : 'no unmitigated H4 zone from a displacement break yet'});
+
+    const gate = d1Pass && h4Pass;
+
+    if (!h1 || !h1.length){
+      steps.push({name:'H1 sweep', status:'N/A', detail:'no H1 data yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    const sweep = bullish ? findH1SweepBull(h1) : findH1SweepBear(h1);
+    if (!sweep){
+      steps.push({name:'H1 sweep', status:'N/A', detail:'no qualifying liquidity sweep yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    steps.push({name:'H1 sweep', status:'Pass', detail:`swept ${sweep.sweptLevel}, reclaimed same candle`});
+
+    const choch = bullish ? findH1ChochBull(h1, sweep.sweepIdx) : findH1ChochBear(h1, sweep.sweepIdx);
+    if (!choch){
+      steps.push({name:'H1 CHoCH', status:'N/A', detail:'no confirming displacement CHoCH yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    steps.push({name:'H1 CHoCH', status:'Pass', detail:`closed through ${choch.brokenLevel} on a displacement candle`});
+
+    if (!m15 || !m15.length){
+      steps.push({name:'M15 FVG', status:'N/A', detail:'no M15 data yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    const chochEpoch = h1[choch.chochIdx].epoch;
+    const fvg = findM15FVG(m15, dir, chochEpoch);
+    if (!fvg){
+      steps.push({name:'M15 FVG', status:'N/A', detail:'no qualifying FVG formed after the CHoCH yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    steps.push({name:'M15 FVG', status:'Pass', detail:`gap [${fvg.bottom.toFixed(5)}, ${fvg.top.toFixed(5)}]`});
+
+    const entry = computeTDEntry(fvg, dir);
+    const atrM15 = computeATR(m15, m15.length-1, 14);
+    if (!atrM15){
+      steps.push({name:`R >= ${TD_MIN_R}`, status:'N/A', detail:'not enough M15 history for ATR(14) yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    const sl = bullish ? sweep.sweptLevel - TD_SL_ATR_MULT*atrM15 : sweep.sweptLevel + TD_SL_ATR_MULT*atrM15;
+    const h1Swings = computeSwingsTD(h1, TD_SWING_N);
+    const targets = findLiquidityTargets(h1Swings, dir, entry);
+    if (!targets.length){
+      steps.push({name:`R >= ${TD_MIN_R}`, status:'N/A', detail:'no H1 liquidity target found beyond entry yet'});
+      return {dir, steps, status:'Watching', ticket:null, gate, plannedR:null};
+    }
+    const risk = Math.abs(entry-sl);
+    const tp1 = targets[0].price;
+    const tp2 = targets.length>1 ? targets[1].price : (bullish ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
+    const plannedR = risk ? Math.abs(tp1-entry)/risk : 0;
+    const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
+    const rPass = plannedR >= TD_MIN_R;
+    steps.push({name:`R >= ${TD_MIN_R}`, status: rPass?'Pass':'Fail', detail:`planned R = ${plannedR.toFixed(2)} (target ${tp1}, SL ${sl.toFixed(5)})`});
+    if (!rPass) return {dir, steps, status:'Invalid', ticket:null, gate, plannedR};
+
+    const invalidReason = checkTDInvalidation(m15, dir, sweep, fvg, entry);
+    const d = decimalsFor(curSym);
+    const ticket = validateTicket({
+      dir, label:'TD-SFC', entry, sl, tp1, tp2, rr1: plannedR, rr2, decimals: d,
+      key: `tdsfc|${curSym}|${dir}|${fvg.start}|${fvg.end}`
+    });
+    if (invalidReason || !ticket) return {dir, steps, status:'Invalid', ticket:null, gate, plannedR, invalidReason};
+    return {dir, steps, status:'Valid', ticket, gate, plannedR};
+  }
+
+  let lastTDSFCCandidate = null;
+  // Picks whichever direction is further along (more checklist steps
+  // resolved beyond N/A) — a ticket in one direction always wins over mere
+  // "Watching" in the other; ties prefer bullish, arbitrarily but
+  // consistently.
+  function buildTDSFCTicket(){
+    const bull = buildTDSFCCandidate('bull');
+    const bear = buildTDSFCCandidate('bear');
+    const depth = cand => cand.steps.filter(s=>s.status!=='N/A').length;
+    lastTDSFCCandidate = (depth(bull) >= depth(bear)) ? bull : bear;
+    return lastTDSFCCandidate.status==='Valid' ? lastTDSFCCandidate.ticket : null;
+  }
+
   // meanrev/trend reflect the original broad batch-scan result (1H, all 38
   // instruments, thousands of episodes) plus what later, more targeted
   // scans this project ran actually found — a broad scan missing a narrow
@@ -1785,16 +2097,23 @@
     // uses the more specific, ticket-facing numbers, not the broader claim.
     // Hasn't cleared this app's own 100-episode/split-half bar yet — treat
     // it as unproven until re-tested properly.
-    fvg: {label:'Redesigned, unproven', detail:'Originally ported from Structure Ledger (own numbers: XAU/USD promising at 20 episodes, +0.29R; EUR/GBP inconsistent). Since rebuilt around a Daily-FVG-anchored, order-block-confirmed, nested-timeframe entry (per the TTRADES "Improve Your Trade Entries Within FVGs" lesson) — this is a different, stricter signal than what those original numbers measured. No real evidence gathered on this version yet; expect far fewer, more selective signals than before.', cls:'val-thin'}
+    fvg: {label:'Redesigned, unproven', detail:'Originally ported from Structure Ledger (own numbers: XAU/USD promising at 20 episodes, +0.29R; EUR/GBP inconsistent). Since rebuilt around a Daily-FVG-anchored, order-block-confirmed, nested-timeframe entry (per the TTRADES "Improve Your Trade Entries Within FVGs" lesson) — this is a different, stricter signal than what those original numbers measured. No real evidence gathered on this version yet; expect far fewer, more selective signals than before.', cls:'val-thin'},
+    // Ported from Structure Ledger's TD-SFC tab, where it's a live checklist
+    // + manual trade log, not a backtested strategy there either. No
+    // walk-forward simulation has been built for it in this app yet (see
+    // startBacktestFetch's guard) — it only drives the live ticket here.
+    tdsfc: {label:'Not backtested — live checklist only', detail:'Mechanical port of the "Top-Down Sweep → CHoCH → FVG" setup: D1 bias, H4 zone (unmitigated, pre-displacement candle), H1 liquidity sweep, H1 CHoCH on a displacement candle, M15 FVG entry, R>=2 gate. Every rule is literal/testable but nothing here has been run through this tool\'s own walk-forward engine — treat it as entirely unproven until it has.', cls:'val-thin'}
   };
 
   function strategyLabel(){
     if (curStrategy==='meanrev') return 'Mean Reversion (Bollinger/RSI2)';
     if (curStrategy==='spike_fade') return 'Bounded-Time Fade (Boom/Crash)';
+    if (curStrategy==='tdsfc') return 'Top-Down Sweep → CHoCH → FVG (TD-SFC)';
     return 'FVG Confluence';
   }
   function effectiveTfLabel(){
     if (curStrategy==='spike_fade') return '1m (fixed)';
+    if (curStrategy==='tdsfc') return 'D1→H4→H1→M15 (fixed)';
     return TF_LABELS[curTf];
   }
 
@@ -1860,6 +2179,14 @@
         else if (s.phase==='insufficient') msg = 'Not enough spikes in the live 1m window yet — need 5+ completed gaps between spikes before the running mean gap is trustworthy.';
         else if (s.phase==='grinding') msg = `[FADE_GRINDING] Last spike ${s.elapsedMin}m ago (mean gap \u2248${s.meanGapMin.toFixed(0)}m). No new entry until the next spike.`;
         else msg = `[FADE_EXIT_ZONE] ${s.elapsedMin}m since the last spike, past the ~${s.exitAtMin.toFixed(0)}m bounded-exit threshold (mean gap \u2248${s.meanGapMin.toFixed(0)}m). Model is flat here — next spike may be close.`;
+      } else if (curStrategy === 'tdsfc'){
+        const cand = lastTDSFCCandidate;
+        if (!cand) msg = 'Reading structure…';
+        else {
+          const rows = cand.steps.map(s => `<div>${s.name}: <b style="color:${s.status==='Pass'?'var(--brass)':s.status==='Fail'?'var(--steel)':'var(--faint)'}">${s.status}</b> — ${s.detail}</div>`).join('');
+          msg = `<div style="margin-bottom:6px">${cand.dir==='bull'?'Bullish':'Bearish'} candidate — status <b>${cand.status}</b>, GATE ${cand.gate?'ON':'OFF'} (D1+H4)</div>${rows}`+
+            (cand.invalidReason ? `<div style="margin-top:6px;color:var(--steel)">Invalidated: ${cand.invalidReason}</div>` : '');
+        }
       } else { // fvg
         msg = 'Reading structure — no BOS/CHoCH + unmitigated FVG confluence yet on this timeframe.';
       }
@@ -2050,11 +2377,13 @@
     const mrDiag = lastMRDiagnostic;
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
     const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs, curTf, undefined, candlesByTf[86400]);
+    const tdsfcTicket = buildTDSFCTicket();
 
     const cells = [
       {key:'meanrev', label:'Mean Reversion', ticket:mrTicket, diag:mrDiag},
       {key:'spike_fade', label:'Bounded-Time Fade', ticket: fadeResult.phase==='entry' ? fadeResult : null, fadeStatus: fadeResult},
-      {key:'fvg', label:'FVG Confluence', ticket:fvgTicket}
+      {key:'fvg', label:'FVG Confluence', ticket:fvgTicket},
+      {key:'tdsfc', label:'TD-SFC', ticket:tdsfcTicket, tdCand:lastTDSFCCandidate}
     ];
     strip.innerHTML = cells.map(cell => {
       let biasLabel = 'idle', biasClass = 'neutral';
@@ -2064,6 +2393,7 @@
         const p = cell.fadeStatus.phase;
         biasLabel = p==='not_applicable' ? 'n/a (not Boom/Crash)' : p==='insufficient' ? 'insufficient data' : p==='grinding' ? 'grinding' : p==='exit_zone' ? 'exit zone' : 'idle';
       }
+      else if (cell.key==='tdsfc' && cell.tdCand){ biasLabel = cell.tdCand.status.toLowerCase(); biasClass='neutral'; }
       return `<div class="mtf-cell ${curStrategy===cell.key?'active':''}" data-strat="${cell.key}" style="cursor:pointer">
         <div class="tf">${cell.label}</div>
         <div class="bias ${biasClass}">${biasLabel}</div>
@@ -2155,6 +2485,7 @@
       const r = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       return r.phase === 'entry' ? r : null;
     }
+    if (strat === 'tdsfc') return buildTDSFCTicket();
     if (strat === 'fvg'){
       const c = candlesByTf[tf];
       if (!c || c.length < 20) return null;
@@ -2171,7 +2502,7 @@
   function fireNotification(strat, tf, ticket){
     const bias = ticket.dir === 'bull' ? 'Bullish' : 'Bearish';
     const stratLbl = strategyLabelFor(strat);
-    const tfLbl = tf ? TF_LABELS[tf] : '1m';
+    const tfLbl = tf ? TF_LABELS[tf] : (strat==='tdsfc' ? 'M15' : '1m');
     const body = strat==='spike_fade'
       ? `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nExit by ~${ticket.exitAtMin.toFixed(0)}m (mean gap ≈${ticket.meanGapMin.toFixed(0)}m) — no fixed price target`
       : `${$('symbol').selectedOptions[0].text}\nEntry ${ticket.entry.toFixed(ticket.decimals)}  SL ${ticket.sl.toFixed(ticket.decimals)}\nTP1 ${ticket.tp1.toFixed(ticket.decimals)}  TP2 ${ticket.tp2.toFixed(ticket.decimals)}`;
@@ -2189,7 +2520,7 @@
   function checkHTFNotifications(){
     if (!notifyEnabled || Notification.permission !== 'granted') return;
     const strat = curStrategy;
-    const tf = strat === 'spike_fade' ? null : curTf;
+    const tf = (strat === 'spike_fade' || strat === 'tdsfc') ? null : curTf;
     const ticket = buildTicketForNotify(strat, tf);
     if (!ticket) return;
     const key = tf || 'single';
@@ -2237,6 +2568,11 @@
       const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
       lastFadeStatus = fadeResult;
       ticket = fadeResult.phase === 'entry' ? fadeResult : null;
+    } else if (curStrategy === 'tdsfc'){
+      // Already computed by renderStrategyStrip just above (it always runs
+      // first in renderAll) and cached in lastTDSFCCandidate — no need to
+      // re-run the whole D1/H4/H1/M15 chain a second time per render.
+      ticket = lastTDSFCCandidate && lastTDSFCCandidate.status==='Valid' ? lastTDSFCCandidate.ticket : null;
     } else { // fvg
       const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
       ticket = buildFVGTicket(candles, swings, structure, fvgs, curTf, h4Data, candlesByTf[86400]);
@@ -2700,6 +3036,14 @@
   // depth selector is currently set to; a batch run for symbol X is exactly
   // what clicking "Run Backtest" on symbol X would have fetched and computed.
   function startBacktestFetch(sym, strat, tf, onComplete){
+    // No walk-forward simulator exists for TD-SFC yet (its D1/H4/H1/M15
+    // cascade would need its own no-lookahead multi-timeframe engine,
+    // distinct from every other strategy's single/dual-timeframe one) — it
+    // only drives the live ticket. Same pattern as the Weekly-tf guard below.
+    if (strat === 'tdsfc'){
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">TD-SFC isn't backtestable yet — it's a live checklist/ticket only, same as in Structure Ledger. Use the ticket panel to watch it live.</div></div>`;
+      return null;
+    }
     if ((strat === 'spike_late' || strat === 'spike_fade') && !spikeDirectionFor(sym)){
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${strategyLabelFor(strat)} only applies to Boom/Crash symbols — not ${symbolLabel(sym)}.</div></div>`;
       return null;
@@ -2773,7 +3117,7 @@
   function strategyLabelFor(s){
     return s==='meanrev' ? 'Mean Reversion'
       : s==='spike_late' ? 'Late-Cycle Entry' : s==='spike_fade' ? 'Bounded-Time Fade'
-      : 'FVG Confluence';
+      : s==='tdsfc' ? 'TD-SFC' : 'FVG Confluence';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
@@ -2937,10 +3281,11 @@
   });
   $('btnFade').addEventListener('click', () => { setStrategy('spike_fade'); });
   $('btnFvg').addEventListener('click', () => { setStrategy('fvg'); });
+  $('btnTDSFC').addEventListener('click', () => { setStrategy('tdsfc'); });
   $('htfFilter').addEventListener('change', renderAll);
 
   const STRATEGY_BUTTON_MAP = [['btnMR','meanrev'],['btnFade','spike_fade'],
-    ['btnFvg','fvg']];
+    ['btnFvg','fvg'],['btnTDSFC','tdsfc']];
 
   function setStrategy(s){
     curStrategy = s;
