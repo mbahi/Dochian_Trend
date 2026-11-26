@@ -281,7 +281,7 @@
     <div class="strategy-toggle">
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
-      <button data-s="fvg" id="btnFvg" title="Any symbol — requires a valid, unmitigated Daily FVG in the trade direction first (the top-down anchor), then a smaller-timeframe FVG nested inside it, backed by an order-block/breaker candle; entry sits at the gap's 50% level on larger gaps. Redesigned per the TTRADES FVG-entry lesson — no evidence gathered on this exact version yet, and expect far fewer signals than the original looser version.">FVG Confluence</button>
+      <button data-s="fvg" id="btnFvg" title="Any symbol — requires a valid, unmitigated Daily FVG in the trade direction first (the top-down anchor), then a smaller-timeframe FVG nested inside it, backed by an order-block/breaker candle; entry sits at the gap's 50% level on larger gaps. TP1 targets the last closed H4 candle's close (nearer, more reachable than a stale opposing swing), falling back to the swing level when the H4 close isn't on the right side. Redesigned per the TTRADES FVG-entry lesson — no evidence gathered on this exact version yet, and expect far fewer signals than the original looser version.">FVG Confluence</button>
       <button data-s="tdsfc" id="btnTDSFC" title="Any symbol — fixed D1→H4→H1→M15 cascade, independent of the timeframe strip above: D1 bias, H4 unmitigated zone from a displacement break, H1 liquidity sweep + CHoCH on a displacement candle, M15 FVG entry, R≥2. Ported from Structure Ledger's TD-SFC tab — live checklist/ticket only, not backtested in this app yet.">TD-SFC (Sweep→CHoCH→FVG)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
@@ -1714,13 +1714,25 @@
   // defined, lower-risk fill. Only applied when tf is intraday (< Daily) —
   // on a Daily/Weekly tf the "nested inside Daily" relationship is
   // degenerate, so this falls back to the plain single-timeframe read.
-  function buildFVGTicket(c, swings, structure, fvgs, tf, h4Data, dailyData){
+  // H4's last element in candlesByTf is the live, still-forming candle (it
+  // updates in place as 'ohlc' ticks arrive) — TP1's H4-close reference
+  // below needs the last CLOSED H4 bar, same as what the backtest's h4ptr
+  // walk-forward pointer already guarantees by construction (it only ever
+  // advances onto a bar whose epoch+14400 has already passed).
+  function lastClosedH4(){
+    const h4 = candlesByTf[14400];
+    return (h4 && h4.length > 1) ? h4.slice(0, -1) : (h4 || []);
+  }
+  function buildFVGTicket(c, swings, structure, fvgs, tf, h4Data, dailyData, requireHtfBias){
     if (!structure.events.length) return null;
     const lastEvent = structure.events[structure.events.length-1];
     const dir = lastEvent.direction;
     // Optional HTF alignment filter (htfFilter checkbox): only take the
-    // trade if H4 structure agrees with the trade direction.
-    if (h4Data){
+    // trade if H4 structure agrees with the trade direction. Separate from
+    // h4Data's other, unconditional use below (TP1) — h4Data is now passed
+    // on every call regardless of this checkbox, so that flag has to be its
+    // own argument rather than "h4Data is present".
+    if (requireHtfBias && h4Data){
       const htfBias = computeTrendBiasEA(h4Data, EA_SWING_LB);
       const htfOK = dir==='bull' ? (htfBias === 1) : (htfBias === -1);
       if (!htfOK) return null;
@@ -1753,10 +1765,30 @@
     const buffer = priceScale * 0.0006;
     const sl = dir==='bull' ? invalidation - buffer : invalidation + buffer;
     const opposing = nearestOpposing(swings, lastEvent.index, dir, entry);
-    if (!opposing.length) return null;
-    const tp1 = opposing[0].price;
-    const tp2 = opposing.length>1 ? opposing[1].price : (dir==='bull' ? entry + 2*(entry-sl) : entry - 2*(sl-entry));
+    // TP1 reworked to the most recently CLOSED H4 candle's close rather than
+    // the next opposing swing — that swing is often several candles back
+    // (sometimes from well before this break) and real signals were firing
+    // correctly but sitting unfilled toward a TP1 price action rarely
+    // revisited. The H4 close is inherently close to where price actually
+    // is, so it's a far more reachable first target. Only used when it's a
+    // real target (same side of entry as the trade direction); otherwise
+    // falls back to the old opposing-swing TP1 so a missing/stale H4 bar
+    // never silently produces a backwards target.
+    const h4Close = (h4Data && h4Data.length) ? h4Data[h4Data.length-1].close : null;
+    const h4CloseValid = h4Close != null && (dir==='bull' ? h4Close > entry : h4Close < entry);
+    if (!h4CloseValid && !opposing.length) return null; // no reachable target either way
+    const tp1 = h4CloseValid ? h4Close : opposing[0].price;
     const risk = Math.abs(entry-sl);
+    // TP2 (the "ride further" target) has to sit beyond TP1 or validateTicket
+    // silently rejects the whole ticket on ordering alone. That's no longer
+    // guaranteed now that TP1 can be the H4 close: an opposing[1] swing
+    // nearer than the H4 close, or a flat 2R-from-entry fallback that lands
+    // short of a far H4 close, would both invert the ordering. One more R
+    // beyond wherever TP1 actually landed is always safe.
+    const fallbackTp2 = dir==='bull' ? tp1 + risk : tp1 - risk;
+    let tp2 = opposing.length>1 ? opposing[1].price : fallbackTp2;
+    const tp2Beyond = dir==='bull' ? tp2 > tp1 : tp2 < tp1;
+    if (!tp2Beyond) tp2 = fallbackTp2;
     const rr1 = risk ? Math.abs(tp1-entry)/risk : 0;
     const rr2 = risk ? Math.abs(tp2-entry)/risk : 0;
     const d = decimalsFor(curSym);
@@ -2097,7 +2129,7 @@
     // uses the more specific, ticket-facing numbers, not the broader claim.
     // Hasn't cleared this app's own 100-episode/split-half bar yet — treat
     // it as unproven until re-tested properly.
-    fvg: {label:'Redesigned, unproven', detail:'Originally ported from Structure Ledger (own numbers: XAU/USD promising at 20 episodes, +0.29R; EUR/GBP inconsistent). Since rebuilt around a Daily-FVG-anchored, order-block-confirmed, nested-timeframe entry (per the TTRADES "Improve Your Trade Entries Within FVGs" lesson) — this is a different, stricter signal than what those original numbers measured. No real evidence gathered on this version yet; expect far fewer, more selective signals than before.', cls:'val-thin'},
+    fvg: {label:'Redesigned, unproven', detail:'Originally ported from Structure Ledger (own numbers: XAU/USD promising at 20 episodes, +0.29R; EUR/GBP inconsistent). Since rebuilt around a Daily-FVG-anchored, order-block-confirmed, nested-timeframe entry (per the TTRADES "Improve Your Trade Entries Within FVGs" lesson) — this is a different, stricter signal than what those original numbers measured. TP1 further reworked to target the last CLOSED H4 candle\'s close instead of the next opposing swing, which was often stale/far and rarely got hit even on otherwise-good signals; falls back to the old swing-based TP1 when the H4 close isn\'t a real (same-direction) target. No real evidence gathered on this version yet; expect far fewer, more selective signals than before.', cls:'val-thin'},
     // Ported from Structure Ledger's TD-SFC tab, where it's a live checklist
     // + manual trade log, not a backtested strategy there either. No
     // walk-forward simulation has been built for it in this app yet (see
@@ -2376,7 +2408,7 @@
     const mrTicket = buildMeanReversionTicketLive(candles, candlesByTf[14400]);
     const mrDiag = lastMRDiagnostic;
     const fadeResult = buildSpikeFadeTicketLive(candlesByTf[60], curSym);
-    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs, curTf, undefined, candlesByTf[86400]);
+    const fvgTicket = buildFVGTicket(candles, swings, structure, fvgs, curTf, lastClosedH4(), candlesByTf[86400], false);
     const tdsfcTicket = buildTDSFCTicket();
 
     const cells = [
@@ -2491,8 +2523,8 @@
       if (!c || c.length < 20) return null;
       const swings = computeSwings(c);
       const structure = computeStructureEvents(c, swings);
-      const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
-      return buildFVGTicket(c, swings, structure, computeFVGs(c), tf, h4Data, candlesByTf[86400]);
+      const requireHtfBias = !!($('htfFilter') && $('htfFilter').checked);
+      return buildFVGTicket(c, swings, structure, computeFVGs(c), tf, lastClosedH4(), candlesByTf[86400], requireHtfBias);
     }
     const c = candlesByTf[tf];
     if (!c || c.length < 20) return null;
@@ -2574,8 +2606,8 @@
       // re-run the whole D1/H4/H1/M15 chain a second time per render.
       ticket = lastTDSFCCandidate && lastTDSFCCandidate.status==='Valid' ? lastTDSFCCandidate.ticket : null;
     } else { // fvg
-      const h4Data = $('htfFilter') && $('htfFilter').checked ? candlesByTf[14400] : null;
-      ticket = buildFVGTicket(candles, swings, structure, fvgs, curTf, h4Data, candlesByTf[86400]);
+      const requireHtfBias = !!($('htfFilter') && $('htfFilter').checked);
+      ticket = buildFVGTicket(candles, swings, structure, fvgs, curTf, lastClosedH4(), candlesByTf[86400], requireHtfBias);
     }
 
     renderChart(candles, swings, structure, curStrategy==='fvg' ? fvgs : undefined);
@@ -2654,7 +2686,7 @@
     return {result:'open', R:0, exitIndex:hist.length-1};
   }
 
-  function simulateFvgBacktest(hist, tf, h4, daily){
+  function simulateFvgBacktest(hist, tf, h4, daily, requireHtfBias){
     const WINDOW = MAXC;
     let lastKey = null;
     const trades = [];
@@ -2676,7 +2708,7 @@
         while (dailyPtr+1 < daily.length && daily[dailyPtr+1].epoch + 86400 <= barTime) dailyPtr++;
         dailySlice = dailyPtr >= 0 ? daily.slice(Math.max(0, dailyPtr-120), dailyPtr+1) : null;
       }
-      const ticket = buildFVGTicket(windowed, swings, structure, fvgs, tf, h4Slice, dailySlice);
+      const ticket = buildFVGTicket(windowed, swings, structure, fvgs, tf, h4Slice, dailySlice, requireHtfBias);
       if (!ticket) continue;
       if (ticket.key === lastKey) continue;
       lastKey = ticket.key;
@@ -2995,9 +3027,9 @@
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
         const trades = bucket.strat === 'fvg'
-          ? simulateFvgBacktest(bucket.data, bucket.tf, bucket.htf || null, bucket.daily || null)
+          ? simulateFvgBacktest(bucket.data, bucket.tf, bucket.htf || null, bucket.daily || null, bucket.fvgRequireHtfBias)
           : simulateBacktest(bucket.data, bucket.htf || null, null);
-        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.wantHtf};
+        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat, htfFiltered: !!bucket.fvgRequireHtfBias};
         if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
         else renderBacktestResults(trades, bucket.data, meta);
         delete pendingEABacktest[runId];
@@ -3076,17 +3108,23 @@
     // avoid firing an excessive number of requests on 1m.
     const rawDepth = Number($('btDepth').value);
     const depth = Math.min(60, Math.ceil(rawDepth * (3600 / tf)));
-    const wantHtf = strat === 'meanrev' // H4 regime filter
-      || (strat === 'fvg' && $('htfFilter') && $('htfFilter').checked);
+    // FVG Confluence now needs H4 data unconditionally (TP1 targets the last
+    // CLOSED H4 candle's close — see buildFVGTicket), not just when the
+    // opt-in htfFilter checkbox is checked. That checkbox still exists as a
+    // separate, stricter bias-agreement filter — fvgRequireHtfBias carries
+    // it through to buildFVGTicket on its own, instead of gating the fetch.
+    const wantHtf = strat === 'meanrev' || strat === 'fvg';
+    const fvgRequireHtfBias = strat === 'fvg' && !!($('htfFilter') && $('htfFilter').checked);
     // FVG Confluence's Daily anchor (see buildFVGTicket) is core to the
     // strategy now, not an opt-in checkbox like the H4 filter above — fetch
     // it whenever backtesting FVG on an intraday tf. On a Daily/Weekly tf
     // the anchor relationship is degenerate (buildFVGTicket skips it via
     // its own tf<86400 gate), so there's nothing to fetch.
     const wantDaily = strat === 'fvg' && tf < 86400;
-    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${wantHtf?' (plus H4 for regime filter)':''}${wantDaily?' (plus Daily for the FVG anchor)':''}…</div></div>`;
+    const htfNote = strat === 'fvg' ? ' (plus H4 for the TP1 close)' : (wantHtf ? ' (plus H4 for regime filter)' : '');
+    if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${depth} page(s) of ${TF_LABELS[tf]} history for ${symbolLabel(sym)}${htfNote}${wantDaily?' (plus Daily for the FVG anchor)':''}…</div></div>`;
     const runId = 'single' + Date.now() + Math.random().toString(36).slice(2,7);
-    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, wantDaily, data_pages:[], onComplete};
+    pendingEABacktest[runId] = {kind:'single', sym, strat, tf, wantHtf, wantDaily, fvgRequireHtfBias, data_pages:[], onComplete};
     requestHistoryPage(sym, tf, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:depth});
     if (wantHtf){
       pendingEABacktest[runId].htf_pages = [];
