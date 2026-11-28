@@ -303,7 +303,8 @@
 
   <details class="btpanel" id="batchPanel" style="margin-bottom:12px">
     <summary style="cursor:pointer;font-family:var(--serif);font-size:14px">Batch Scan</summary>
-    <div class="btmeta" style="margin-top:10px">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo.</div>
+    <div class="btmeta" style="margin-top:10px">Runs every checked symbol/strategy combo through the same engine as "Run Backtest" above. Depth follows the selector above. A "0 signals" row is a real result, not an error. Late-Cycle Entry / Bounded-Time Fade fetch 1m history directly (ignoring the timeframe strip) and only apply to Boom/Crash symbols — checking them against anything else silently skips that combo. Progress is saved as it goes and keeps a screen wake lock while running, so a brief interruption (reconnect, app switch) resumes instead of restarting — but a phone fully locked/backgrounded for a while will still pause until you reopen it; that's a mobile browser limit, not a bug here.</div>
+    <div id="batchResumeBanner" style="display:none;margin-top:8px"></div>
     <div id="batchStratChecks" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-family:var(--mono);font-size:11px;color:var(--dim)"></div>
     <div style="display:flex;gap:10px;margin-bottom:6px;font-family:var(--mono);font-size:10.5px">
       <button class="tbtn" id="btnSelectAllSyms" style="background:var(--ledger2);color:var(--text);border:1px solid var(--line);padding:4px 9px">Select all symbols</button>
@@ -473,9 +474,43 @@
       setStatus(true, 'live');
       requestActiveSymbols(0);
       subscribeAll();
+      // A Batch Scan that paused because the socket dropped between items
+      // (see runNextBatchItem) picks back up on its own once reconnected —
+      // no need to re-click Run Batch Scan or lose what's already done.
+      if (batchAwaitingReconnect && batchQueue.length){
+        batchAwaitingReconnect = false;
+        batchRunning = true;
+        $('btnRunBatch').disabled = true;
+        $('btnStopBatch').disabled = false;
+        $('batchProgress').textContent = `Reconnected — resuming (${batchQueue.length} queued)…`;
+        acquireWakeLock();
+        runNextBatchItem();
+      }
     };
     ws.onmessage = e => handle(JSON.parse(e.data));
-    ws.onclose = () => { setStatus(false, 'reconnecting…'); setTimeout(connect, 2500); };
+    ws.onclose = () => {
+      setStatus(false, 'reconnecting…');
+      // A batch item's history fetch was mid-flight on this socket — its
+      // response can never arrive now (the next connect() gets a whole new
+      // WebSocket with its own handlers). Re-queue it at the front instead
+      // of leaving it stuck as a permanently "running" row, and let the
+      // reconnect-resume above (or a page reload's saved-state banner) pick
+      // it back up.
+      if (batchRunning && currentBatchItem){
+        batchQueue.unshift(currentBatchItem);
+        batchResults = batchResults.filter(r => !(r.key === currentBatchItem.key && r.status === 'running'));
+        currentBatchItem = null;
+        batchRunning = false;
+        batchAwaitingReconnect = true;
+        $('btnRunBatch').disabled = false;
+        $('btnStopBatch').disabled = true;
+        $('batchProgress').textContent = 'Connection lost mid-item — will resume automatically once reconnected.';
+        releaseWakeLock();
+        saveBatchState();
+        renderBatchTable();
+      }
+      setTimeout(connect, 2500);
+    };
     ws.onerror = () => { try{ws.close();}catch(_){} };
   }
 
@@ -3227,6 +3262,90 @@
       : s==='tdsfc' ? 'TD-SFC' : 'FVG Confluence';
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
+  // currentBatchItem: whichever item's history fetch is in flight right now
+  // (set the instant it's shifted off the queue, cleared once its result
+  // lands) — lets ws.onclose tell "a batch item just got orphaned by a
+  // dropped socket" from "nothing was running." batchAwaitingReconnect:
+  // true only when a batch paused because of THAT (not a user Stop click),
+  // so ws.onopen knows it's safe to resume automatically.
+  let currentBatchItem = null, batchAwaitingReconnect = false;
+
+  // ---------- Batch Scan persistence + screen wake lock ----------
+  // Mobile browsers throttle/suspend background tabs — a Batch Scan can't
+  // truly keep running once the app is minimized or the screen locks, that's
+  // enforced by the OS, not something client JS can override. What IS
+  // achievable: make an interruption non-destructive (resume instead of
+  // restart) and reduce how often the screen itself locks you out while
+  // you're still watching it run.
+  const BATCH_STATE_KEY = 'structureLedger_batch_state';
+  function saveBatchState(){
+    try{
+      if (!batchQueue.length && !batchResults.some(r=>r.status==='done')){ localStorage.removeItem(BATCH_STATE_KEY); return; }
+      localStorage.setItem(BATCH_STATE_KEY, JSON.stringify({
+        queue: batchQueue, results: batchResults.filter(r=>r.status==='done'), savedAt: Date.now()
+      }));
+    }catch(_){}
+  }
+  function loadBatchState(){
+    try{ return JSON.parse(localStorage.getItem(BATCH_STATE_KEY) || 'null'); }catch(_){ return null; }
+  }
+  function clearBatchState(){ try{ localStorage.removeItem(BATCH_STATE_KEY); }catch(_){} }
+
+  let wakeLock = null;
+  // Screen Wake Lock API: best-effort, silently a no-op where unsupported
+  // (notably iOS Safari before 16.4) or refused. Only keeps the SCREEN from
+  // auto-locking while this tab is open and visible — released by the
+  // browser itself the moment the tab is hidden/minimized, which is exactly
+  // the boundary this can't cross (see the note above).
+  async function acquireWakeLock(){
+    try{
+      if ('wakeLock' in navigator){
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    }catch(_){} // unsupported, denied, or the tab isn't visible — not critical to function
+  }
+  function releaseWakeLock(){
+    if (wakeLock){ try{ wakeLock.release(); }catch(_){} wakeLock = null; }
+  }
+  // The lock is auto-released on hide and NOT auto-reacquired on show
+  // (that's on the caller, per spec) — re-request it if you come back to a
+  // still-running scan.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && batchRunning && !wakeLock) acquireWakeLock();
+  });
+
+  function renderBatchResumeBanner(){
+    const el = $('batchResumeBanner');
+    const saved = loadBatchState();
+    if (!saved || !saved.queue || !saved.queue.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
+    const doneCount = (saved.results||[]).length;
+    const remaining = saved.queue.length;
+    const when = new Date(saved.savedAt).toLocaleString();
+    $('batchPanel').open = true; // surface it — a banner inside a collapsed <details> is invisible
+    el.style.display = 'block';
+    el.innerHTML = `<div class="btpanel" style="padding:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--faint)">Unfinished batch scan from ${when} — ${doneCount} done, ${remaining} remaining.</span>
+      <button class="tbtn" id="btnResumeBatch" style="background:var(--brass);color:#0f1826;padding:5px 10px">Resume</button>
+      <button class="tbtn" id="btnDiscardBatch" style="background:var(--ledger);color:var(--text);border:1px solid var(--line);padding:5px 10px">Discard</button>
+    </div>`;
+    $('btnResumeBatch').addEventListener('click', () => {
+      if (!ws || ws.readyState !== 1 || batchRunning) return;
+      batchResults = saved.results || [];
+      batchQueue = saved.queue || [];
+      batchStopRequested = false;
+      batchAwaitingReconnect = false;
+      currentBatchItem = null;
+      batchRunning = true;
+      $('btnRunBatch').disabled = true;
+      $('btnStopBatch').disabled = false;
+      el.style.display = 'none'; el.innerHTML = '';
+      acquireWakeLock();
+      renderBatchTable();
+      runNextBatchItem();
+    });
+    $('btnDiscardBatch').addEventListener('click', () => { clearBatchState(); el.style.display = 'none'; el.innerHTML = ''; });
+  }
   function populateBatchChecks(){
     // All checked by default. spike_fade stays Boom/Crash-only (see
     // spikeDirectionFor) and runBatchScan's queue-builder skips it silently
@@ -3318,6 +3437,8 @@
       winDist: isSpikeStrat ? winDistribution(trades, 3.0) : null
     };
     if (idx>=0) batchResults[idx] = row; else batchResults.push(row);
+    currentBatchItem = null;
+    saveBatchState();
     renderBatchTable();
     runNextBatchItem();
   }
@@ -3327,16 +3448,25 @@
       $('btnRunBatch').disabled = false;
       $('btnStopBatch').disabled = true;
       $('batchProgress').textContent = !batchQueue.length ? 'Done.' : 'Stopped.';
+      releaseWakeLock();
+      if (!batchQueue.length) clearBatchState(); // nothing left to resume
       return;
     }
     if (!ws || ws.readyState !== 1){
-      $('batchProgress').textContent = 'Lost connection — stopped.';
+      // Between items (not mid-fetch — that case is ws.onclose's job, see
+      // connect()). Saved state + batchAwaitingReconnect let this pick back
+      // up on its own once the socket's back, no manual restart needed.
+      $('batchProgress').textContent = 'Connection lost — will resume automatically once reconnected.';
       batchRunning = false;
+      batchAwaitingReconnect = true;
       $('btnRunBatch').disabled = false;
       $('btnStopBatch').disabled = true;
+      releaseWakeLock();
+      saveBatchState();
       return;
     }
     const item = batchQueue.shift();
+    currentBatchItem = item;
     const done = batchResults.filter(r=>r.status==='done').length;
     $('batchProgress').textContent = `Running ${symbolLabel(item.sym)} · ${strategyLabelFor(item.strat)} — ${done} done, ${batchQueue.length} queued…`;
     batchResults.push({key:item.key, status:'running', symLabel: symbolLabel(item.sym), stratLabel: strategyLabelFor(item.strat)});
@@ -3365,9 +3495,14 @@
     }
     batchResults = [];
     batchStopRequested = false;
+    batchAwaitingReconnect = false;
+    currentBatchItem = null;
     batchRunning = true;
+    clearBatchState();
+    $('batchResumeBanner').style.display = 'none';
     $('btnRunBatch').disabled = true;
     $('btnStopBatch').disabled = false;
+    acquireWakeLock();
     renderBatchTable();
     runNextBatchItem();
   }
@@ -3377,6 +3512,7 @@
   $('btnSelectAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = true); });
   $('btnClearAllSyms').addEventListener('click', () => { document.querySelectorAll('.batchSym').forEach(el => el.checked = false); });
   populateBatchChecks();
+  renderBatchResumeBanner();
 
   $('symbol').addEventListener('change', e => { curSym = e.target.value; $('quote').textContent='–'; $('backtestslot').innerHTML=''; savePrefs(); if (ws && ws.readyState===1) subscribeAll(); });
   $('btnMR').addEventListener('click', () => { setStrategy('meanrev'); });
