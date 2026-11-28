@@ -282,7 +282,7 @@
       <button data-s="meanrev" class="active" id="btnMR">Mean Reversion (Bollinger/RSI2)</button>
       <button data-s="spike_fade" id="btnFade" title="Boom/Crash only — enters against the spike direction right after a spike resolves, exits at 60% of the running mean gap. Backed by real, cost-adjusted evidence on the original 10 Boom/Crash instruments (300–1000 range); the newer 50/150 variants haven't been backtested yet.">Bounded-Time Fade (Boom/Crash)</button>
       <button data-s="fvg" id="btnFvg" title="Any symbol — requires a valid, unmitigated Daily FVG in the trade direction first (the top-down anchor), then a smaller-timeframe FVG nested inside it, backed by an order-block/breaker candle; entry sits at the gap's 50% level on larger gaps. TP1 targets the last closed H4 candle's close (nearer, more reachable than a stale opposing swing), falling back to the swing level when the H4 close isn't on the right side. Redesigned per the TTRADES FVG-entry lesson — no evidence gathered on this exact version yet, and expect far fewer signals than the original looser version.">FVG Confluence</button>
-      <button data-s="tdsfc" id="btnTDSFC" title="Any symbol — fixed D1→H4→H1→M15 cascade, independent of the timeframe strip above: D1 bias, H4 unmitigated zone from a displacement break, H1 liquidity sweep + CHoCH on a displacement candle, M15 FVG entry, R≥2. Ported from Structure Ledger's TD-SFC tab — live checklist/ticket only, not backtested in this app yet.">TD-SFC (Sweep→CHoCH→FVG)</button>
+      <button data-s="tdsfc" id="btnTDSFC" title="Any symbol — fixed D1→H4→H1→M15 cascade, independent of the timeframe strip above: D1 bias, H4 unmitigated zone from a displacement break, H1 liquidity sweep + CHoCH on a displacement candle, M15 FVG entry, R≥2. Ported from Structure Ledger's TD-SFC tab. Now backtestable (Run Backtest/Batch Scan always fetch D1/H4/H1/M15 regardless of the timeframe strip) — no real evidence gathered yet, treat as unproven.">TD-SFC (Sweep→CHoCH→FVG)</button>
     </div>
     <select id="btDepth" title="How far back to fetch (paginates for real depth)">
       <option value="1">~7 months</option>
@@ -2011,12 +2011,17 @@
     if (barsSince >= TD_INVALIDATION_BARS) return `${barsSince} M15 candles passed with no fill (limit ${TD_INVALIDATION_BARS})`;
     return null;
   }
-  // Runs the full rule chain for one direction. Returns the checklist
-  // (Pass/Fail/N/A per step), the overall status, the ticket (if any), and
-  // the GATE tag — D1 bias and H4 zone are evaluated here but do NOT block
-  // the ticket; see the section header above for why.
-  function buildTDSFCCandidate(dir){
-    const d1 = candlesByTf[86400], h4 = candlesByTf[14400], h1 = candlesByTf[3600], m15 = candlesByTf[900];
+  // Runs the full rule chain for one direction against whatever D1/H4/H1/M15
+  // arrays are handed to it. Returns the checklist (Pass/Fail/N/A per step),
+  // the overall status, the ticket (if any), and the GATE tag — D1 bias and
+  // H4 zone are evaluated here but do NOT block the ticket; see the section
+  // header above for why.
+  //
+  // Split out from buildTDSFCCandidate so the exact same chain can run
+  // against live candlesByTf data (see the thin wrapper below) AND against
+  // a backtest's own no-lookahead walk-forward slices (simulateTDSFCBacktest)
+  // without maintaining two copies of the rule logic.
+  function buildTDSFCCandidateFrom(d1, h4, h1, m15, dir){
     const steps = [];
     const bullish = dir==='bull';
 
@@ -2093,6 +2098,10 @@
     if (invalidReason || !ticket) return {dir, steps, status:'Invalid', ticket:null, gate, plannedR, invalidReason};
     return {dir, steps, status:'Valid', ticket, gate, plannedR};
   }
+  // Live wrapper — reads the always-subscribed candlesByTf buckets directly.
+  function buildTDSFCCandidate(dir){
+    return buildTDSFCCandidateFrom(candlesByTf[86400], candlesByTf[14400], candlesByTf[3600], candlesByTf[900], dir);
+  }
 
   let lastTDSFCCandidate = null;
   // Picks whichever direction is further along (more checklist steps
@@ -2134,7 +2143,7 @@
     // + manual trade log, not a backtested strategy there either. No
     // walk-forward simulation has been built for it in this app yet (see
     // startBacktestFetch's guard) — it only drives the live ticket here.
-    tdsfc: {label:'Not backtested — live checklist only', detail:'Mechanical port of the "Top-Down Sweep → CHoCH → FVG" setup: D1 bias, H4 zone (unmitigated, pre-displacement candle), H1 liquidity sweep, H1 CHoCH on a displacement candle, M15 FVG entry, R>=2 gate. Every rule is literal/testable but nothing here has been run through this tool\'s own walk-forward engine — treat it as entirely unproven until it has.', cls:'val-thin'}
+    tdsfc: {label:'Backtestable, unproven', detail:'Mechanical port of the "Top-Down Sweep → CHoCH → FVG" setup: D1 bias, H4 zone (unmitigated, pre-displacement candle), H1 liquidity sweep, H1 CHoCH on a displacement candle, M15 FVG entry, R>=2 gate. Now has its own no-lookahead walk-forward engine (D1/H4/H1 pointer-walked alongside an M15 fill simulation) and is included in Backtest/Batch Scan — but no real evidence has been gathered on it yet. Every rule is literal/testable; treat it as entirely unproven until a real run says otherwise.', cls:'val-thin'}
   };
 
   function strategyLabel(){
@@ -2720,6 +2729,42 @@
     return trades;
   }
 
+  // TD-SFC's walk-forward — M15 is the primary timeframe (entries/fills are
+  // detected there, same role curTf plays for every other strategy's own
+  // simulate*Backtest), with D1/H4/H1 all pointer-walked no-lookahead
+  // alongside it (the same h4ptr/dailyPtr technique FVG Confluence already
+  // uses, extended with a third h1ptr). Runs the exact same
+  // buildTDSFCCandidateFrom chain the live ticket uses — see the section
+  // above — just fed walk-forward slices instead of candlesByTf directly.
+  function simulateTDSFCBacktest(m15hist, h1hist, h4hist, d1hist){
+    const WINDOW = MAXC;
+    let lastKey = null;
+    const trades = [];
+    let neverFilled = 0;
+    let h1ptr = -1, h4ptr = -1, d1ptr = -1;
+    for (let i=30; i<m15hist.length-1; i++){
+      const barTime = m15hist[i].epoch;
+      while (h1ptr+1 < h1hist.length && h1hist[h1ptr+1].epoch + 3600 <= barTime) h1ptr++;
+      while (h4ptr+1 < h4hist.length && h4hist[h4ptr+1].epoch + 14400 <= barTime) h4ptr++;
+      while (d1ptr+1 < d1hist.length && d1hist[d1ptr+1].epoch + 86400 <= barTime) d1ptr++;
+      if (h1ptr < 0 || h4ptr < 0 || d1ptr < 0) continue; // not enough HTF history yet to evaluate the chain
+      const m15Windowed = m15hist.slice(Math.max(0, i-WINDOW+1), i+1);
+      const h1Slice = h1hist.slice(Math.max(0, h1ptr-120), h1ptr+1);
+      const h4Slice = h4hist.slice(Math.max(0, h4ptr-120), h4ptr+1);
+      const d1Slice = d1hist.slice(Math.max(0, d1ptr-120), d1ptr+1);
+      const bull = buildTDSFCCandidateFrom(d1Slice, h4Slice, h1Slice, m15Windowed, 'bull');
+      const cand = bull.status==='Valid' ? bull : buildTDSFCCandidateFrom(d1Slice, h4Slice, h1Slice, m15Windowed, 'bear');
+      if (cand.status !== 'Valid') continue;
+      const ticket = cand.ticket;
+      if (ticket.key === lastKey) continue;
+      lastKey = ticket.key;
+      const outcome = simulateSmcTrade(m15hist, i+1, ticket);
+      if (outcome.result === 'never filled'){ neverFilled++; continue; }
+      trades.push(Object.assign({index:i}, ticket, outcome));
+    }
+    lastBacktestNeverFilled = neverFilled;
+    return trades;
+  }
 
   function fmtDate(epoch){
     const dt = new Date(epoch*1000);
@@ -2739,7 +2784,8 @@
     const stratLabel = meta.strat==='meanrev' ? 'Mean_Reversion_BB_RSI2'
       : meta.strat==='spike_fade' ? 'Bounded_Time_Fade'
       : meta.strat==='spike_late' ? 'Late_Cycle_Entry'
-      : meta.strat==='fvg' ? 'FVG_Confluence' : meta.strat;
+      : meta.strat==='fvg' ? 'FVG_Confluence'
+      : meta.strat==='tdsfc' ? 'TD_SFC' : meta.strat;
     const tfPart = TF_LABELS[meta.tf];
     const header = ['bar_index','date','direction','label','entry','sl','tp1','tp2','rr1','rr2','result','R'];
     const rows = lastBacktestTrades.map(t => [
@@ -2897,7 +2943,8 @@
     const stratLabel = meta.strat==='meanrev' ? 'Mean Reversion (Bollinger/RSI2)'
       : meta.strat==='spike_fade' ? 'Bounded-Time Fade'
       : meta.strat==='spike_late' ? 'Late-Cycle Entry'
-      : meta.strat==='fvg' ? 'FVG Confluence' : meta.strat;
+      : meta.strat==='fvg' ? 'FVG Confluence'
+      : meta.strat==='tdsfc' ? 'TD-SFC' : meta.strat;
     const tfLabel = TF_LABELS[meta.tf];
     const dateRange = hist.length ? `${fmtDate(hist[0].epoch)} → ${fmtDate(hist[hist.length-1].epoch)}` : '';
 
@@ -3023,6 +3070,17 @@
     // is identical either way, so a batch run can never silently compute
     // something different from what "Run Backtest" would show for the same
     // symbol/strategy/timeframe.
+    if (bucket.kind === 'tdsfc' && bucket.data && bucket.h1 && bucket.htf && bucket.daily){
+      if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} M15 bars (D1/H4/H1 pointer-walked alongside)…</div></div>`;
+      setTimeout(() => {
+        const trades = simulateTDSFCBacktest(bucket.data, bucket.h1, bucket.htf, bucket.daily);
+        const meta = {purpose:'backtest', sym:bucket.sym, tf:bucket.tf, strat:bucket.strat};
+        if (bucket.onComplete) bucket.onComplete(trades, bucket.data, meta);
+        else renderBacktestResults(trades, bucket.data, meta);
+        delete pendingEABacktest[runId];
+      }, 30);
+      return;
+    }
     if (bucket.kind === 'single' && bucket.data && (!bucket.wantHtf || bucket.htf) && (!bucket.wantDaily || bucket.daily)){
       if (!bucket.onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Running walk-forward across ${bucket.data.length} ${TF_LABELS[bucket.tf]} bars…</div></div>`;
       setTimeout(() => {
@@ -3068,13 +3126,24 @@
   // depth selector is currently set to; a batch run for symbol X is exactly
   // what clicking "Run Backtest" on symbol X would have fetched and computed.
   function startBacktestFetch(sym, strat, tf, onComplete){
-    // No walk-forward simulator exists for TD-SFC yet (its D1/H4/H1/M15
-    // cascade would need its own no-lookahead multi-timeframe engine,
-    // distinct from every other strategy's single/dual-timeframe one) — it
-    // only drives the live ticket. Same pattern as the Weekly-tf guard below.
+    // TD-SFC's cascade is fixed D1->H4->H1->M15, independent of whatever tf
+    // the timeframe strip has selected (same as live — see buildTDSFCCandidate).
+    // Its own kind ('tdsfc', not 'single') because it needs 4 legs instead of
+    // the generic single-tf(+htf+daily) shape every other strategy uses.
     if (strat === 'tdsfc'){
-      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">TD-SFC isn't backtestable yet — it's a live checklist/ticket only, same as in Structure Ledger. Use the ticket panel to watch it live.</div></div>`;
-      return null;
+      const rawDepth = Number($('btDepth').value);
+      const m15Depth = Math.min(60, Math.ceil(rawDepth * (3600 / 900)));
+      if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btloading">Fetching ${m15Depth} page(s) of M15 history for ${symbolLabel(sym)} (plus H1/H4/D1 for the sweep->CHoCH->FVG chain)…</div></div>`;
+      const runId = 'tdsfc' + Date.now() + Math.random().toString(36).slice(2,7);
+      pendingEABacktest[runId] = {kind:'tdsfc', sym, strat, tf:900, data_pages:[], h1_pages:[], htf_pages:[], daily_pages:[], onComplete};
+      requestHistoryPage(sym, 900, 5000, 'latest', {runId, part:'data', pageIndex:0, pagesWanted:m15Depth});
+      const h1Depth = Math.min(60, Math.ceil(rawDepth * (3600 / 3600)) || 1);
+      requestHistoryPage(sym, 3600, 5000, 'latest', {runId, part:'h1', pageIndex:0, pagesWanted:h1Depth});
+      const htfDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 14400)) || 1);
+      requestHistoryPage(sym, 14400, 1300, 'latest', {runId, part:'htf', pageIndex:0, pagesWanted:htfDepth});
+      const dailyDepth = Math.min(60, Math.ceil(rawDepth * (3600 / 86400)) || 1);
+      requestHistoryPage(sym, 86400, 1000, 'latest', {runId, part:'daily', pageIndex:0, pagesWanted:dailyDepth});
+      return runId;
     }
     if ((strat === 'spike_late' || strat === 'spike_fade') && !spikeDirectionFor(sym)){
       if (!onComplete) $('backtestslot').innerHTML = `<div class="btpanel"><div class="btverdict val-thin">${strategyLabelFor(strat)} only applies to Boom/Crash symbols — not ${symbolLabel(sym)}.</div></div>`;
@@ -3159,13 +3228,14 @@
   }
   let batchQueue = [], batchResults = [], batchRunning = false, batchStopRequested = false;
   function populateBatchChecks(){
-    // All checked by default. spike_late/spike_fade stay Boom/Crash-only
-    // (see spikeDirectionFor) and runBatchScan's queue-builder skips those
-    // combos silently on other symbols; FVG Confluence and the symbol
-    // dropdown's Forex/Metals/Volatility/Step/Jump additions run on every
-    // symbol, per their original design.
-    const stratDefs = [['meanrev','Mean Reversion'],['spike_late','Late-Cycle Entry'],['spike_fade','Bounded-Time Fade'],
-      ['fvg','FVG Confluence']];
+    // All checked by default. spike_fade stays Boom/Crash-only (see
+    // spikeDirectionFor) and runBatchScan's queue-builder skips it silently
+    // on other symbols; Late-Cycle Entry is left out of this list entirely
+    // (by request) — Batch Scan no longer offers it, though startBacktestFetch
+    // still supports it directly if ever needed again. Mean Reversion, FVG
+    // Confluence and TD-SFC run on every symbol, per their original design.
+    const stratDefs = [['meanrev','Mean Reversion'],['spike_fade','Bounded-Time Fade'],
+      ['fvg','FVG Confluence'],['tdsfc','TD-SFC']];
     $('batchStratChecks').innerHTML = stratDefs.map(([v,l]) => `<label><input type="checkbox" class="batchStrat" value="${v}" checked> ${l}</label>`).join('');
     const opts = Array.from(document.querySelectorAll('#symbol option'));
     // The #symbol dropdown now spans Boom/Crash, Forex/Metals, Volatility
@@ -3288,7 +3358,9 @@
       // its early "return null" without calling onComplete would silently
       // stall the whole batch loop rather than just skipping one row.
       if ((strat==='meanrev' || strat==='fvg') && curTf===WEEK_TF) continue;
-      const tf = isSpike ? 60 : curTf;
+      // TD-SFC's tf is always fixed at M15 (see startBacktestFetch) —
+      // independent of whatever the timeframe strip is set to.
+      const tf = isSpike ? 60 : strat==='tdsfc' ? 900 : curTf;
       batchQueue.push({sym, strat, tf, key: sym+'|'+strat});
     }
     batchResults = [];
